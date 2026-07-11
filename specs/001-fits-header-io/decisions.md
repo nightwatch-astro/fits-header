@@ -20,21 +20,12 @@ decisions that want your input (defaults chosen so work can proceed).
 - **`time` stays a core dependency** (datetime interpretation is core per xisf item 1); `coords` adds no deps,
   only gates sexagesimal + MJD functions.
 
-## Decisions wanting your input (proceeding with the marked default)
+## Decisions resolved by the owner
 
-- **License**: single **Apache-2.0** (your earlier choice). The brief mentioned dual `MIT OR Apache-2.0`.
-  *Default:* Apache-2.0. Revisit before the first crates.io publish.
-- **`to_bytes` on a large declared image with no data**: zero-fills the declared array size (a valid standalone
-  object). A pathological geometry could allocate a lot. *Default:* zero-fill; real-file edits should use
-  `to_header_bytes` + original data. Open: cap size / error above a threshold?
-- **Branch completion**: opened **PR #1** (`feat/fits-header-io` → `main`) rather than auto-merging.
-  Merge when you're happy with it, or tell me to merge.
+- **License**: single **Apache-2.0**, confirmed. Applies to both sibling crates (`xisf-header` matches).
+- **`to_bytes` on a large declared image**: capped. `to_bytes` errs with `FitsError::DataTooLarge`
+  above `MAX_ZERO_FILL` (1 GiB) instead of zero-filling; `to_header_bytes` + original data is the
+  documented path for real-file edits.
+- **Branch completion**: PR #1 merged to `main`.
 - **APM packages are unpinned** (`@srobroek-agentic` → marketplace HEAD); `apm audit` warns of drift.
-  *Default:* leave unpinned for now; pin with `#tag`/`#sha` when reproducibility matters.
-
-## Status at handover
-
-Implementation complete and green: `just verify` passes; `clippy -D warnings` clean on default and
-`--all-features`; 27 tests default, 30 with `coords,serde` (incl. proptest byte-exact + semantic
-round-trip). All work committed and pushed to `feat/fits-header-io`; PR #1 open. Nothing is blocked —
-the four items above are refinements, not blockers.
+  Left unpinned; pin with `#tag`/`#sha` when reproducibility matters.

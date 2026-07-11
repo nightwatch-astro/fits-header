@@ -69,6 +69,16 @@ impl Header {
 
     /// Read a keyword as `T`. `Err` only on an ambiguous bare name; `Ok(None)` when absent or the
     /// value does not convert; never panics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// assert_eq!(h.get::<f64>("EXPTIME").unwrap(), Some(120.0));
+    /// assert_eq!(h.get::<i64>("MISSING").unwrap(), None);
+    /// ```
     pub fn get<T: FromCard>(&self, key: impl Into<Key>) -> Result<Option<T>, FitsError> {
         Ok(self
             .resolve(&key.into())?
@@ -131,6 +141,19 @@ impl Header {
     /// Update the addressed record in place, or append when the (unique) name is absent.
     /// The keyword must be FITS-standard (`≤8`, `A-Z 0-9 - _`); use [`set_raw`](Self::set_raw)
     /// for vendor keys.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::{FitsError, Header};
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap(); // appends
+    /// h.set("OBJECT", "NGC 7000").unwrap(); // updates in place
+    /// assert_eq!(h.count("OBJECT"), 1);
+    ///
+    /// let err = h.set("object", 1); // lowercase is not FITS-standard
+    /// assert!(matches!(err, Err(FitsError::InvalidKeyword { .. })));
+    /// ```
     pub fn set(&mut self, key: impl Into<Key>, value: impl IntoValue) -> Result<(), FitsError> {
         self.set_inner(key.into(), value.into_value(), false)
     }
@@ -141,6 +164,16 @@ impl Header {
     }
 
     /// Always add a record (a value card, or a commentary card for `COMMENT`/`HISTORY`/blank).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.append("HISTORY", "dark subtracted").unwrap();
+    /// h.append("HISTORY", "flat fielded").unwrap();
+    /// assert_eq!(h.get_all::<String>("HISTORY").len(), 2);
+    /// ```
     pub fn append(&mut self, name: &str, value: impl IntoValue) -> Result<(), FitsError> {
         validate_keyword(name)?;
         self.records
@@ -162,6 +195,16 @@ impl Header {
     }
 
     /// Remove the addressed record. Returns whether anything was removed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("AIRMASS", 1.2).unwrap();
+    /// assert!(h.remove("AIRMASS").unwrap());
+    /// assert!(!h.remove("AIRMASS").unwrap());
+    /// ```
     pub fn remove(&mut self, key: impl Into<Key>) -> Result<bool, FitsError> {
         match self.resolve(&key.into())? {
             Some(i) => {
@@ -173,6 +216,18 @@ impl Header {
     }
 
     /// Apply several mutations atomically: validate every entry first, then apply all or none.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set_many([("FILTER", "Ha"), ("TELESCOP", "EdgeHD 8")]).unwrap();
+    ///
+    /// // A rejected batch leaves the header untouched.
+    /// assert!(h.set_many([("GAIN", "1"), ("TOOLONGKEY", "2")]).is_err());
+    /// assert_eq!(h.count("GAIN"), 0);
+    /// ```
     pub fn set_many<K, V>(
         &mut self,
         entries: impl IntoIterator<Item = (K, V)>,
@@ -227,13 +282,120 @@ impl Header {
 
     /// Serialize the header block only (cards, `END`, padded to a 2880 multiple) for splicing onto
     /// an existing file's data.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// let bytes = h.to_header_bytes();
+    /// assert_eq!(bytes.len() % fits_header::BLOCK_LEN, 0);
+    /// ```
     pub fn to_header_bytes(&self) -> Vec<u8> {
         write::to_header_bytes(self)
     }
 
     /// Serialize a standalone FITS object (header + a minimal zero data block). Mandatory
     /// structural cards are synthesized only when absent; `structural` is a fallback.
-    pub fn to_bytes(&self, structural: &StructuralHints) -> Vec<u8> {
+    ///
+    /// Errors with [`FitsError::DataTooLarge`] when the declared data segment exceeds
+    /// [`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL) — for real-file edits, serialize with
+    /// [`to_header_bytes`](Self::to_header_bytes) and splice the original data.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::{Header, StructuralHints};
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// let file = h.to_bytes(&StructuralHints::default()).unwrap();
+    /// assert!(file.starts_with(b"SIMPLE"));
+    /// ```
+    pub fn to_bytes(&self, structural: &StructuralHints) -> Result<Vec<u8>, FitsError> {
         write::to_bytes(self, structural)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_routes_commentary_keywords_to_commentary_records() {
+        let mut h = Header::new();
+        h.set("COMMENT", "a note").unwrap();
+        h.set("HISTORY", "step 1").unwrap();
+        assert!(matches!(
+            h.cards()[0].kind,
+            crate::record::RecordKind::Commentary { .. }
+        ));
+        assert_eq!(h.get_all::<String>("HISTORY"), vec!["step 1".to_string()]);
+    }
+
+    #[test]
+    fn get_all_skips_unconvertible_values() {
+        let mut h = Header::new();
+        h.append("GAIN", 100).unwrap();
+        h.append("GAIN", "not a number").unwrap();
+        h.append("GAIN", 200).unwrap();
+        assert_eq!(h.get_all::<i64>("GAIN"), vec![100, 200]);
+        assert_eq!(h.count("GAIN"), 3);
+    }
+
+    #[test]
+    fn set_comment_on_absent_key_is_noop() {
+        let mut h = Header::new();
+        h.set_comment("NOPE", "x").unwrap();
+        assert!(h.cards().is_empty());
+    }
+
+    #[test]
+    fn remove_returns_false_when_absent() {
+        let mut h = Header::new();
+        assert!(!h.remove("NOPE").unwrap());
+    }
+
+    #[test]
+    fn remove_many_aborts_on_ambiguity_before_removing() {
+        let mut h = Header::new();
+        h.set("A", 1).unwrap();
+        h.append("DUP", 1).unwrap();
+        h.append("DUP", 2).unwrap();
+        let before = h.clone();
+        assert!(matches!(
+            h.remove_many(["A", "DUP"]),
+            Err(FitsError::AmbiguousKeyword { .. })
+        ));
+        assert_eq!(h, before, "nothing may be removed on a rejected batch");
+
+        assert_eq!(h.remove_many(["A", "MISSING"]).unwrap(), 1);
+    }
+
+    #[test]
+    fn set_many_accepts_occurrence_keys() {
+        let mut h = Header::new();
+        h.append("GAIN", 1).unwrap();
+        h.append("GAIN", 2).unwrap();
+        h.set_many([(("GAIN", 0), 10), (("GAIN", 1), 20)]).unwrap();
+        assert_eq!(h.get_all::<i64>("GAIN"), vec![10, 20]);
+    }
+
+    #[test]
+    fn iter_matches_cards() {
+        let mut h = Header::new();
+        h.set("A", 1).unwrap();
+        h.set("B", 2).unwrap();
+        assert_eq!(h.iter().count(), 2);
+        let names: Vec<_> = h.iter().filter_map(|r| r.keyword()).collect();
+        assert_eq!(names, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn get_on_missing_key_is_ok_none() {
+        let h = Header::new();
+        assert_eq!(h.get::<i64>("NOPE").unwrap(), None);
+        assert_eq!(h.get_str("NOPE").unwrap(), None);
+        assert_eq!(h.get::<i64>(("NOPE", 3)).unwrap(), None);
     }
 }

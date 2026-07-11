@@ -5,6 +5,18 @@
 /// A bare name is **strict**: `get`/`set`/`remove` error with
 /// [`FitsError::AmbiguousKeyword`](crate::FitsError::AmbiguousKeyword) if the keyword is
 /// duplicated. The `(name, occurrence)` form targets exactly one record (0-based).
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::Header;
+/// let mut h = Header::new();
+/// h.append("GAIN", 100).unwrap();
+/// h.append("GAIN", 200).unwrap();
+///
+/// assert!(h.get::<i64>("GAIN").is_err()); // ambiguous bare name
+/// assert_eq!(h.get::<i64>(("GAIN", 1)).unwrap(), Some(200)); // explicit occurrence
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Key {
     /// The sole occurrence of a keyword (strict).
@@ -57,5 +69,30 @@ impl From<(&str, usize)> for Key {
 impl From<(String, usize)> for Key {
     fn from((name, n): (String, usize)) -> Self {
         Key::Occurrence(name, n)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conversions_and_accessors() {
+        let k: Key = "GAIN".into();
+        assert_eq!(k, Key::Name("GAIN".to_string()));
+        assert_eq!(k.name(), "GAIN");
+        assert_eq!(k.occurrence(), None);
+
+        let k: Key = ("GAIN".to_string()).into();
+        assert_eq!(k.name(), "GAIN");
+        let k: Key = (&"GAIN".to_string()).into();
+        assert_eq!(k.name(), "GAIN");
+
+        let k: Key = ("GAIN", 1).into();
+        assert_eq!(k, Key::Occurrence("GAIN".to_string(), 1));
+        assert_eq!(k.name(), "GAIN");
+        assert_eq!(k.occurrence(), Some(1));
+        let k: Key = ("GAIN".to_string(), 2).into();
+        assert_eq!(k.occurrence(), Some(2));
     }
 }

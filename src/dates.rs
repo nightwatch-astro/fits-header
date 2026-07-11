@@ -3,6 +3,14 @@
 use time::{Date, Month, PrimitiveDateTime, Time};
 
 /// Parse a FITS civil date/time (`YYYY-MM-DD[Thh:mm:ss[.fff]]`), timezone-naive.
+///
+/// # Examples
+///
+/// ```
+/// let dt = fits_header::parse_datetime("2026-07-11T22:15:03").unwrap();
+/// assert_eq!(fits_header::format_datetime(&dt), "2026-07-11T22:15:03");
+/// assert!(fits_header::parse_datetime("2026-07-11").is_some()); // date-only → midnight
+/// ```
 pub fn parse_datetime(s: &str) -> Option<PrimitiveDateTime> {
     let t = s.trim().trim_matches('\'').trim();
     let (date_part, time_part) = match t.split_once('T') {
@@ -97,4 +105,69 @@ pub fn mjd_to_datetime(mjd: f64) -> PrimitiveDateTime {
 #[cfg(feature = "coords")]
 pub fn datetime_to_mjd(dt: &PrimitiveDateTime) -> f64 {
     (*dt - mjd_epoch()).as_seconds_f64() / 86_400.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn date_only_is_midnight() {
+        let dt = parse_datetime("2026-07-11").unwrap();
+        assert_eq!(dt.time(), Time::MIDNIGHT);
+        assert_eq!(format_datetime(&dt), "2026-07-11T00:00:00");
+    }
+
+    #[test]
+    fn seconds_and_fraction_are_optional() {
+        assert_eq!(
+            format_datetime(&parse_datetime("2026-07-11T22:15").unwrap()),
+            "2026-07-11T22:15:00"
+        );
+        let dt = parse_datetime("2026-07-11T22:15:03.25").unwrap();
+        assert_eq!(dt.time().nanosecond(), 250_000_000);
+        assert_eq!(format_datetime(&dt), "2026-07-11T22:15:03.25");
+    }
+
+    #[test]
+    fn fraction_beyond_nanoseconds_is_truncated() {
+        let dt = parse_datetime("2026-07-11T00:00:00.1234567891234").unwrap();
+        assert_eq!(dt.time().nanosecond(), 123_456_789);
+    }
+
+    #[test]
+    fn quoted_input_is_tolerated() {
+        assert!(parse_datetime("'2026-07-11T01:02:03'").is_some());
+        assert!(parse_datetime("  2026-07-11  ").is_some());
+    }
+
+    #[test]
+    fn invalid_forms_are_none() {
+        for bad in [
+            "2026-13-01",          // month
+            "2026-02-30",          // day
+            "2026-07-11T25:00:00", // hour
+            "2026-07-11-05",       // extra date part
+            "2026-07-11T1:2:3:4",  // extra time part
+            "2026",                // no month/day
+            "not a date",
+        ] {
+            assert!(parse_datetime(bad).is_none(), "{bad:?} should not parse");
+        }
+    }
+
+    #[test]
+    fn format_trims_trailing_fraction_zeros() {
+        let dt = parse_datetime("2026-07-11T00:00:00.100").unwrap();
+        assert_eq!(format_datetime(&dt), "2026-07-11T00:00:00.1");
+        let dt = parse_datetime("2026-07-11T00:00:00.000").unwrap();
+        assert_eq!(format_datetime(&dt), "2026-07-11T00:00:00");
+    }
+
+    #[cfg(feature = "coords")]
+    #[test]
+    fn mjd_epoch_is_zero() {
+        assert_eq!(datetime_to_mjd(&mjd_epoch()), 0.0);
+        assert_eq!(mjd_to_datetime(0.0), mjd_epoch());
+    }
 }

@@ -18,15 +18,15 @@
 //! h.set("EXPTIME", 120.0).unwrap();
 //! assert_eq!(h.get::<f64>("EXPTIME").unwrap(), Some(120.0));
 //!
-//! let bytes = h.to_bytes(&StructuralHints::default());
+//! let bytes = h.to_bytes(&StructuralHints::default()).unwrap();
 //! assert_eq!(bytes.len() % fits_header::BLOCK_LEN, 0);
 //! ```
 //!
 //! ## Design
 //!
-//! - **Pure Rust, MSVC-safe** — minimal dependencies, no C libraries.
-//! - **Byte-exact** — an untouched card (and untouched long-string run) re-emits identical bytes.
-//! - **Strict** — ambiguous keyword access errors instead of guessing.
+//! - Pure Rust, no C or system libraries; builds with the MSVC toolchain.
+//! - An untouched card (and untouched long-string run) re-emits identical bytes.
+//! - Ambiguous keyword access errors instead of guessing.
 //!
 //! ## Features
 //!
@@ -58,7 +58,7 @@ pub use crate::key::Key;
 pub use crate::parse::parse;
 pub use crate::record::{Record, RecordKind, Value};
 pub use crate::value::{parse_f64, parse_i64, Fixed, FromCard, IntoValue, Literal, Sci};
-pub use crate::write::StructuralHints;
+pub use crate::write::{StructuralHints, MAX_ZERO_FILL};
 
 #[cfg(feature = "coords")]
 pub use crate::coords::{
@@ -66,3 +66,8 @@ pub use crate::coords::{
 };
 #[cfg(feature = "coords")]
 pub use crate::dates::{datetime_to_mjd, mjd_to_datetime};
+
+/// Compiles the README's code blocks as doctests so the documented API cannot drift.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

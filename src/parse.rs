@@ -10,6 +10,21 @@ use crate::CARD_LEN;
 /// Reads 80-byte cards in order, stops at `END`, and retains every card (including commentary,
 /// `HIERARCH`, and unrecognized cards) so untouched cards serialize verbatim. `CONTINUE` runs are
 /// reassembled into a single logical value.
+///
+/// # Examples
+///
+/// ```
+/// let mut bytes = Vec::new();
+/// for card in ["OBJECT  = 'M31     '", "EXPTIME =                120.0", "END"] {
+///     let mut c = card.as_bytes().to_vec();
+///     c.resize(80, b' ');
+///     bytes.extend(c);
+/// }
+///
+/// let header = fits_header::parse(&bytes).unwrap();
+/// assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
+/// assert_eq!(header.get::<f64>("EXPTIME").unwrap(), Some(120.0));
+/// ```
 pub fn parse(bytes: &[u8]) -> Result<Header, FitsError> {
     let cards: Vec<[u8; CARD_LEN]> = bytes
         .chunks_exact(CARD_LEN)
@@ -160,5 +175,135 @@ fn split_comment(s: &str) -> (&str, Option<String>) {
     match s.find('/') {
         Some(idx) => (&s[..idx], extract_comment(&s[idx..])),
         None => (s, None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::record::RecordKind;
+
+    fn block(cards: &[&str]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for c in cards {
+            let mut b = c.as_bytes().to_vec();
+            b.resize(CARD_LEN, b' ');
+            out.extend(b);
+        }
+        let mut end = b"END".to_vec();
+        end.resize(CARD_LEN, b' ');
+        out.extend(end);
+        out
+    }
+
+    #[test]
+    fn string_field_plain_with_comment() {
+        let (content, comment, cont) = parse_string_field("'abc     ' / a note");
+        assert_eq!(content, "abc     ");
+        assert_eq!(comment.as_deref(), Some("a note"));
+        assert!(!cont);
+    }
+
+    #[test]
+    fn string_field_unescapes_doubled_quotes() {
+        let (content, _, _) = parse_string_field("'ab''c'");
+        assert_eq!(content, "ab'c");
+    }
+
+    #[test]
+    fn string_field_continuation_marker() {
+        let (content, comment, cont) = parse_string_field("'abc&'");
+        // The '&' stays in the content; the caller drops it only when CONTINUE follows.
+        assert_eq!(content, "abc&");
+        assert_eq!(comment, None);
+        assert!(cont);
+    }
+
+    #[test]
+    fn string_field_without_quote_is_empty() {
+        assert_eq!(parse_string_field("T"), (String::new(), None, false));
+    }
+
+    #[test]
+    fn comment_extraction() {
+        assert_eq!(extract_comment(" / hi"), Some("hi".to_string()));
+        assert_eq!(extract_comment(" / "), None, "empty comment is None");
+        assert_eq!(extract_comment("no slash"), None);
+        let (token, comment) = split_comment("T / yes");
+        assert_eq!(token.trim(), "T");
+        assert_eq!(comment.as_deref(), Some("yes"));
+        let (token, comment) = split_comment("42");
+        assert_eq!(token, "42");
+        assert_eq!(comment, None);
+    }
+
+    #[test]
+    fn hierarch_and_unrecognized_are_opaque() {
+        let h = parse(&block(&["HIERARCH ESO DET DIT = 10.0", "JUNK CARD"])).unwrap();
+        assert_eq!(h.cards().len(), 2);
+        for r in h.cards() {
+            assert!(matches!(r.kind, RecordKind::Opaque { .. }));
+            assert_eq!(r.keyword(), None);
+        }
+    }
+
+    #[test]
+    fn fully_blank_card_is_opaque_blank_with_text_is_commentary() {
+        let h = parse(&block(&["", "        some annotation"])).unwrap();
+        assert!(matches!(
+            h.cards()[0].kind,
+            RecordKind::Opaque { ref text } if text.is_empty()
+        ));
+        assert!(matches!(
+            h.cards()[1].kind,
+            RecordKind::Commentary { ref keyword, ref text }
+                if keyword.is_empty() && text == "some annotation"
+        ));
+    }
+
+    #[test]
+    fn stray_continue_is_opaque() {
+        // CONTINUE without a preceding '&'-terminated string is not a value card.
+        let h = parse(&block(&["OBJECT  = 'X'", "CONTINUE  'orphan'"])).unwrap();
+        assert_eq!(h.get_str("OBJECT").unwrap(), Some("X"));
+        assert!(matches!(h.cards()[1].kind, RecordKind::Opaque { .. }));
+    }
+
+    #[test]
+    fn continue_comment_comes_from_last_card() {
+        let h = parse(&block(&["LONG    = 'aaa&'", "CONTINUE  'bbb' / tail note"])).unwrap();
+        assert_eq!(h.get_str("LONG").unwrap(), Some("aaabbb"));
+        assert_eq!(h.cards()[0].comment(), Some("tail note"));
+    }
+
+    #[test]
+    fn continue_run_at_end_of_input_keeps_marker() {
+        // '&' with no following CONTINUE card: marker is literal content.
+        let h = parse(&block(&["LONG    = 'aaa&'"])).unwrap();
+        assert_eq!(h.get_str("LONG").unwrap(), Some("aaa&"));
+    }
+
+    #[test]
+    fn trailing_partial_card_is_dropped() {
+        let mut bytes = block(&["OBJECT  = 'X'"]);
+        bytes.extend_from_slice(b"GAIN    = 1"); // 11 bytes, not a full card
+        let h = parse(&bytes).unwrap();
+        assert_eq!(h.get_str("OBJECT").unwrap(), Some("X"));
+        assert_eq!(h.count("GAIN"), 0);
+    }
+
+    #[test]
+    fn non_utf8_bytes_parse_lossily() {
+        let mut cards = block(&["OBJECT  = 'X'"]);
+        cards[15] = 0xff; // inside the value field
+        let h = parse(&cards).unwrap();
+        assert_eq!(h.cards().len(), 1, "card is retained, lossily decoded");
+    }
+
+    #[test]
+    fn value_needs_equals_space() {
+        // '=' not followed by a space is not a value indicator.
+        let h = parse(&block(&["WEIRD   =X"])).unwrap();
+        assert!(matches!(h.cards()[0].kind, RecordKind::Opaque { .. }));
     }
 }

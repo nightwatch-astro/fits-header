@@ -112,6 +112,15 @@ impl IntoValue for f32 {
 
 /// Write a literal token verbatim (numeric text a vendor supplied, or a value you don't want
 /// reformatted).
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Header, Literal};
+/// let mut h = Header::new();
+/// h.set("BSCALE", Literal("1.000")).unwrap(); // kept as-is, not reformatted
+/// assert_eq!(h.get::<String>("BSCALE").unwrap().as_deref(), Some("1.000"));
+/// ```
 pub struct Literal<S: Into<String>>(pub S);
 
 impl<S: Into<String>> IntoValue for Literal<S> {
@@ -121,6 +130,15 @@ impl<S: Into<String>> IntoValue for Literal<S> {
 }
 
 /// Write a float with a fixed number of decimal places.
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Fixed, Header};
+/// let mut h = Header::new();
+/// h.set("EXPTIME", Fixed(120.0, 2)).unwrap();
+/// assert_eq!(h.get::<String>("EXPTIME").unwrap().as_deref(), Some("120.00"));
+/// ```
 pub struct Fixed(pub f64, pub u8);
 
 impl IntoValue for Fixed {
@@ -130,6 +148,15 @@ impl IntoValue for Fixed {
 }
 
 /// Write a float in scientific notation with `N` significant digits (uppercase `E`).
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Header, Sci};
+/// let mut h = Header::new();
+/// h.set("BZERO", Sci(0.000123, 3)).unwrap();
+/// assert_eq!(h.get::<String>("BZERO").unwrap().as_deref(), Some("1.23E-4"));
+/// ```
 pub struct Sci(pub f64, pub u8);
 
 impl IntoValue for Sci {
@@ -142,6 +169,13 @@ impl IntoValue for Sci {
 // --- number parsing/formatting -------------------------------------------
 
 /// Parse a float, accepting the Fortran `D` exponent (`1.5D3`).
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(fits_header::parse_f64("1.5D3"), Some(1500.0));
+/// assert_eq!(fits_header::parse_f64("120.0"), Some(120.0));
+/// ```
 pub fn parse_f64(s: &str) -> Option<f64> {
     let t = s.trim();
     if t.contains(['D', 'd']) {
@@ -152,6 +186,13 @@ pub fn parse_f64(s: &str) -> Option<f64> {
 }
 
 /// Parse an integer, accepting decimal-form integers (`"20.0"` → `20`).
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(fits_header::parse_i64("20.0"), Some(20));
+/// assert_eq!(fits_header::parse_i64("20.5"), None);
+/// ```
 pub fn parse_i64(s: &str) -> Option<i64> {
     lenient_i128(s).and_then(|v| i64::try_from(v).ok())
 }
@@ -171,11 +212,122 @@ pub(crate) fn format_f64(x: f64) -> String {
         return x.to_string();
     }
     let mut s = format!("{x}");
-    if s.contains('e') {
-        s = s.replacen('e', "E", 1);
-    }
-    if !s.contains('.') && !s.contains('E') {
+    if s.len() > 20 {
+        // Positional display expands extreme magnitudes into hundreds of digits, which no
+        // 80-byte card can hold; exponent form is equally exact and always fits.
+        s = format!("{x:E}");
+    } else if !s.contains('.') {
         s.push_str(".0");
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::record::Record;
+
+    fn literal(token: &str) -> Record {
+        Record::value("K", Value::Literal(token.to_string()), None)
+    }
+
+    #[test]
+    fn format_f64_normalizes() {
+        assert_eq!(format_f64(120.0), "120.0");
+        assert_eq!(format_f64(0.5), "0.5");
+        assert_eq!(format_f64(-0.0), "-0.0");
+        assert_eq!(format_f64(f64::NAN), "NaN");
+        // Extreme magnitudes switch to exponent form instead of hundreds of digits.
+        assert_eq!(format_f64(1e300), "1E300");
+        assert_eq!(format_f64(1e-300), "1E-300");
+        assert_eq!(format_f64(f64::MIN_POSITIVE), "2.2250738585072014E-308");
+        // Every emitted token fits a fixed-format value field or close to it, and
+        // round-trips exactly.
+        for x in [0.1, 1.0 / 3.0, 6.02214076e23, 1e300, -1e-300, f64::MAX] {
+            let s = format_f64(x);
+            assert!(s.len() <= 24, "token too long: {s}");
+            assert_eq!(s.parse::<f64>().unwrap(), x);
+        }
+    }
+
+    #[test]
+    fn parse_f64_accepts_fortran_exponent() {
+        assert_eq!(parse_f64("1.5D3"), Some(1500.0));
+        assert_eq!(parse_f64("1.5d-2"), Some(0.015));
+        assert_eq!(parse_f64(" 2.0 "), Some(2.0));
+        assert_eq!(parse_f64("abc"), None);
+    }
+
+    #[test]
+    fn parse_i64_is_lenient_but_rejects_fractions() {
+        assert_eq!(parse_i64("20.0"), Some(20));
+        assert_eq!(parse_i64("20.5"), None);
+        assert_eq!(parse_i64("1e3"), Some(1000));
+        // Larger than i64 → None, not a wrap.
+        assert_eq!(parse_i64("170141183460469231731687303715884105727"), None);
+        assert_eq!(parse_i64("inf"), None);
+    }
+
+    #[test]
+    fn int_narrowing_fails_closed() {
+        assert_eq!(u8::from_card(&literal("300")), None);
+        assert_eq!(u8::from_card(&literal("255")), Some(255));
+        assert_eq!(u32::from_card(&literal("-1")), None);
+        assert_eq!(i16::from_card(&literal("-32768")), Some(-32768));
+    }
+
+    #[test]
+    fn bool_from_card_variants() {
+        assert_eq!(bool::from_card(&literal("T")), Some(true));
+        assert_eq!(bool::from_card(&literal("1")), Some(true));
+        assert_eq!(bool::from_card(&literal("F")), Some(false));
+        assert_eq!(bool::from_card(&literal("0")), Some(false));
+        assert_eq!(bool::from_card(&literal("yes")), None);
+    }
+
+    #[test]
+    fn string_from_card_reads_literal_token() {
+        assert_eq!(
+            String::from_card(&literal("120.0")).as_deref(),
+            Some("120.0")
+        );
+        // An empty Str value reads as absent.
+        let empty = Record::value("K", Value::Str(String::new()), None);
+        assert_eq!(String::from_card(&empty), None);
+    }
+
+    #[test]
+    fn into_value_wrappers() {
+        assert_eq!(true.into_value(), Value::Literal("T".to_string()));
+        assert_eq!(false.into_value(), Value::Literal("F".to_string()));
+        assert_eq!(
+            Literal("007").into_value(),
+            Value::Literal("007".to_string())
+        );
+        assert_eq!(
+            Fixed(1.5, 3).into_value(),
+            Value::Literal("1.500".to_string())
+        );
+        assert_eq!(
+            Sci(0.000123, 3).into_value(),
+            Value::Literal("1.23E-4".to_string())
+        );
+        assert_eq!(
+            Sci(1234.0, 1).into_value(),
+            Value::Literal("1E3".to_string())
+        );
+        assert_eq!("s".into_value(), Value::Str("s".to_string()));
+        assert_eq!((&"s".to_string()).into_value(), Value::Str("s".to_string()));
+        assert_eq!(42u8.into_value(), Value::Literal("42".to_string()));
+        assert_eq!((-3isize).into_value(), Value::Literal("-3".to_string()));
+        assert_eq!(2.5f32.into_value(), Value::Literal("2.5".to_string()));
+    }
+
+    #[test]
+    fn datetime_from_card() {
+        let r = Record::value("K", Value::Str("2026-07-11T22:15:03".to_string()), None);
+        let dt = time::PrimitiveDateTime::from_card(&r).unwrap();
+        assert_eq!(crate::dates::format_datetime(&dt), "2026-07-11T22:15:03");
+        assert_eq!(time::PrimitiveDateTime::from_card(&literal("nope")), None);
+    }
 }

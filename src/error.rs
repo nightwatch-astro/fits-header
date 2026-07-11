@@ -1,8 +1,10 @@
 //! Error type for fallible header operations.
 
-/// Errors from validated header mutations and ambiguous lookups.
+/// Errors from validated header mutations, ambiguous lookups, and oversized standalone
+/// serialization.
 ///
-/// Parsing is lenient and does not produce these; serialization is infallible.
+/// Parsing is lenient and does not produce these; header-only serialization
+/// ([`Header::to_header_bytes`](crate::Header::to_header_bytes)) is infallible.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum FitsError {
@@ -39,5 +41,16 @@ pub enum FitsError {
         occurrence: usize,
         /// How many occurrences exist.
         count: usize,
+    },
+
+    /// [`Header::to_bytes`](crate::Header::to_bytes) declined to zero-fill a declared data
+    /// segment larger than [`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL). Serialize the header with
+    /// [`Header::to_header_bytes`](crate::Header::to_header_bytes) and supply the data yourself.
+    #[error("declared data size of {declared} bytes exceeds the to_bytes zero-fill cap ({max})")]
+    DataTooLarge {
+        /// The data size the header declares (saturated on overflow).
+        declared: u64,
+        /// The cap it exceeds ([`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL)).
+        max: u64,
     },
 }

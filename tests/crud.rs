@@ -98,3 +98,17 @@ fn set_comment_and_bool() {
     h.set_comment("EXTEND", "may contain extensions").unwrap();
     assert_eq!(h.cards()[0].comment(), Some("may contain extensions"));
 }
+
+#[test]
+fn fits_error_is_a_std_error() {
+    fn assert_traits<T: std::error::Error + Send + Sync + Clone + 'static>() {}
+    assert_traits::<FitsError>();
+    let e = FitsError::AmbiguousKeyword {
+        keyword: "GAIN".to_string(),
+        count: 2,
+    };
+    assert_eq!(
+        e.to_string(),
+        "keyword 'GAIN' occurs 2 times; select an occurrence"
+    );
+}
