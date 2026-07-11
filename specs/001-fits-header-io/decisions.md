@@ -27,7 +27,14 @@ decisions that want your input (defaults chosen so work can proceed).
 - **`to_bytes` on a large declared image with no data**: zero-fills the declared array size (a valid standalone
   object). A pathological geometry could allocate a lot. *Default:* zero-fill; real-file edits should use
   `to_header_bytes` + original data. Open: cap size / error above a threshold?
-- **Branch completion**: I'll push the `feat/fits-header-io` branch and open a **PR** at the end rather than
-  auto-merging to `main` (merging is consequential). *Default:* PR, not merge. Say if you want it merged.
+- **Branch completion**: opened **PR #1** (`feat/fits-header-io` → `main`) rather than auto-merging.
+  Merge when you're happy with it, or tell me to merge.
 - **APM packages are unpinned** (`@srobroek-agentic` → marketplace HEAD); `apm audit` warns of drift.
   *Default:* leave unpinned for now; pin with `#tag`/`#sha` when reproducibility matters.
+
+## Status at handover
+
+Implementation complete and green: `just verify` passes; `clippy -D warnings` clean on default and
+`--all-features`; 27 tests default, 30 with `coords,serde` (incl. proptest byte-exact + semantic
+round-trip). All work committed and pushed to `feat/fits-header-io`; PR #1 open. Nothing is blocked —
+the four items above are refinements, not blockers.
