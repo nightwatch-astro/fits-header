@@ -44,7 +44,8 @@ Each maps to a user story in [spec.md](./spec.md); they are realized as tests un
 - Expect: every card except the `EXPTIME` card is byte-identical to the input; re-parsing yields a
   semantically equal header; every card is 80 bytes; length is a multiple of 2880.
 - `to_bytes(&StructuralHints::default())` on a from-scratch header synthesizes `SIMPLE/BITPIX/NAXIS*` and
-  appends a minimal data block; on a parsed header those cards are not duplicated.
+  appends a minimal data block; on a parsed header those cards are not duplicated. A header declaring
+  a data segment above `MAX_ZERO_FILL` (1 GiB) gets `Err(DataTooLarge)` instead of a zero-fill.
 - A string longer than one card serializes across `CONTINUE` cards and reassembles on re-parse.
 
 ### US4 — helpers

@@ -52,8 +52,9 @@ impl Header {
     /// Header block only (cards, END, padded to 2880) — splice onto existing file data.
     pub fn to_header_bytes(&self) -> Vec<u8>;
     /// Standalone FITS object (header + minimal data block). Synthesizes SIMPLE/BITPIX/NAXIS*
-    /// only when absent; StructuralHints is a fallback.
-    pub fn to_bytes(&self, structural: &StructuralHints) -> Vec<u8>;
+    /// only when absent; StructuralHints is a fallback. Errs with DataTooLarge when the
+    /// declared data segment exceeds MAX_ZERO_FILL (1 GiB) instead of zero-filling it.
+    pub fn to_bytes(&self, structural: &StructuralHints) -> Result<Vec<u8>, FitsError>;
 }
 ```
 
@@ -147,7 +148,17 @@ pub enum FitsError {
     InvalidKeyword { keyword: String },
     #[error("keyword '{keyword}' has no occurrence {occurrence} (found {count})")]
     OccurrenceOutOfRange { keyword: String, occurrence: usize, count: usize },
+    #[error("declared data size of {declared} bytes exceeds the to_bytes zero-fill cap ({max})")]
+    DataTooLarge { declared: u64, max: u64 },
 }
+```
+
+## Constants
+
+```rust
+pub const CARD_LEN: usize = 80;       // bytes per header card
+pub const BLOCK_LEN: usize = 2880;    // bytes per FITS block (36 cards)
+pub const MAX_ZERO_FILL: u64 = 1 << 30; // largest data segment to_bytes will zero-fill
 ```
 
 ## Feature flags

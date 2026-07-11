@@ -2,7 +2,7 @@
 
 mod common;
 use common::build;
-use fits_header::{parse, Header, StructuralHints};
+use fits_header::{parse, FitsError, Header, StructuralHints, MAX_ZERO_FILL};
 
 #[test]
 fn untouched_cards_are_byte_exact() {
@@ -50,7 +50,7 @@ fn cards_are_80_and_padded_2880() {
 fn synthesizes_structural_when_absent() {
     let mut h = Header::new();
     h.set("OBJECT", "X").unwrap();
-    let out = h.to_bytes(&StructuralHints::default());
+    let out = h.to_bytes(&StructuralHints::default()).unwrap();
     assert!(String::from_utf8_lossy(&out[0..80]).starts_with("SIMPLE"));
     assert_eq!(out.len() % 2880, 0);
     let re = parse(&out).unwrap();
@@ -67,10 +67,59 @@ fn does_not_duplicate_existing_structural() {
         "OBJECT  = 'X       '",
     ]);
     let h = parse(&bytes).unwrap();
-    let out = h.to_bytes(&StructuralHints::default());
+    let out = h.to_bytes(&StructuralHints::default()).unwrap();
     let re = parse(&out).unwrap();
     assert_eq!(re.count("SIMPLE"), 1);
     assert_eq!(re.count("BITPIX"), 1);
+}
+
+#[test]
+fn to_bytes_rejects_oversized_declared_data() {
+    // 100000 × 100000 × 8 bytes ≈ 80 GB — must error, not allocate.
+    let bytes = build(&[
+        "SIMPLE  =                    T",
+        "BITPIX  =                   64",
+        "NAXIS   =                    2",
+        "NAXIS1  =               100000",
+        "NAXIS2  =               100000",
+    ]);
+    let h = parse(&bytes).unwrap();
+    assert!(matches!(
+        h.to_bytes(&StructuralHints::default()),
+        Err(FitsError::DataTooLarge { max, .. }) if max == MAX_ZERO_FILL
+    ));
+}
+
+#[test]
+fn to_bytes_overflowing_axes_error_not_wrap() {
+    // The axis product overflows u64; saturation must report DataTooLarge, never wrap to
+    // a small allocation.
+    let bytes = build(&[
+        "SIMPLE  =                    T",
+        "BITPIX  =                   64",
+        "NAXIS   =                    3",
+        "NAXIS1  =  9223372036854775807",
+        "NAXIS2  =  9223372036854775807",
+        "NAXIS3  =  9223372036854775807",
+    ]);
+    let h = parse(&bytes).unwrap();
+    assert!(matches!(
+        h.to_bytes(&StructuralHints::default()),
+        Err(FitsError::DataTooLarge { declared, .. }) if declared == u64::MAX
+    ));
+}
+
+#[test]
+fn to_bytes_zero_naxis_has_no_data_segment() {
+    let bytes = build(&[
+        "SIMPLE  =                    T",
+        "BITPIX  =                    8",
+        "NAXIS   =                    0",
+    ]);
+    let h = parse(&bytes).unwrap();
+    let out = h.to_bytes(&StructuralHints::default()).unwrap();
+    // Header block only: cards + END padded to one 2880 block, no zero-fill after it.
+    assert_eq!(out.len(), 2880);
 }
 
 #[test]

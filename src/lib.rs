@@ -18,7 +18,7 @@
 //! h.set("EXPTIME", 120.0).unwrap();
 //! assert_eq!(h.get::<f64>("EXPTIME").unwrap(), Some(120.0));
 //!
-//! let bytes = h.to_bytes(&StructuralHints::default());
+//! let bytes = h.to_bytes(&StructuralHints::default()).unwrap();
 //! assert_eq!(bytes.len() % fits_header::BLOCK_LEN, 0);
 //! ```
 //!
@@ -58,7 +58,7 @@ pub use crate::key::Key;
 pub use crate::parse::parse;
 pub use crate::record::{Record, RecordKind, Value};
 pub use crate::value::{parse_f64, parse_i64, Fixed, FromCard, IntoValue, Literal, Sci};
-pub use crate::write::StructuralHints;
+pub use crate::write::{StructuralHints, MAX_ZERO_FILL};
 
 #[cfg(feature = "coords")]
 pub use crate::coords::{

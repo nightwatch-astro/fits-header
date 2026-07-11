@@ -233,7 +233,11 @@ impl Header {
 
     /// Serialize a standalone FITS object (header + a minimal zero data block). Mandatory
     /// structural cards are synthesized only when absent; `structural` is a fallback.
-    pub fn to_bytes(&self, structural: &StructuralHints) -> Vec<u8> {
+    ///
+    /// Errors with [`FitsError::DataTooLarge`] when the declared data segment exceeds
+    /// [`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL) — for real-file edits, serialize with
+    /// [`to_header_bytes`](Self::to_header_bytes) and splice the original data.
+    pub fn to_bytes(&self, structural: &StructuralHints) -> Result<Vec<u8>, FitsError> {
         write::to_bytes(self, structural)
     }
 }
