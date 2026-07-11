@@ -8,7 +8,7 @@
 
 **Input**: A pure-Rust, MSVC-safe FITS header library that faithfully reads, edits, and writes one
 FITS header unit — preserving every card byte-for-byte except the ones the caller changes — with
-strict keyword access, atomic batch edits, coordinate/date helpers, and a round-trip guarantee.
+strict keyword access, atomic batch edits, date helpers, and a round-trip guarantee.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -97,27 +97,21 @@ to its input and re-parsing reproduces the header; assert 80-byte cards and 2880
 
 ---
 
-### User Story 4 - Interpret and format coordinates, numbers, and dates (Priority: P2)
+### User Story 4 - Interpret and format numbers and dates (Priority: P2)
 
-A developer converts sexagesimal RA/Dec (both directions), decimal-form integers, ISO-8601 dates, and
-Modified Julian Dates.
+A developer converts decimal-form integers and ISO-8601 dates.
 
 **Why this priority**: A convenience layer over the header; useful but not required to read, edit, or
 write raw cards.
 
 **Independent Test**: Call the helpers and the datetime-typed read with representative inputs and assert
-results, including sign at the zero boundary and sexagesimal/date round-trips.
+results, including date round-trips.
 
 **Acceptance Scenarios**:
 
-1. **Given** RA `10 00 00` (or `10:00:00`, or fractional seconds), **When** converted, **Then** `150.0`.
-2. **Given** Dec `-00 30 00`, **When** converted, **Then** `-0.5` (sign preserved at 0°).
-3. **Given** `150.0`, **When** formatted as sexagesimal RA, **Then** it re-parses to `150.0`.
-4. **Given** `20.0` where an integer is expected, **When** parsed, **Then** `20`.
-5. **Given** `DATE-OBS = '2026-07-11T22:15:03'`, **When** read as a datetime, **Then** a parsed value;
+1. **Given** `20.0` where an integer is expected, **When** parsed, **Then** `20`.
+2. **Given** `DATE-OBS = '2026-07-11T22:15:03'`, **When** read as a datetime, **Then** a parsed value;
    formatting it back yields the same string.
-6. **Given** an `MJD-OBS` value, **When** converted to a calendar date, **Then** it agrees with the
-   matching `DATE-OBS`.
 
 ---
 
@@ -191,14 +185,13 @@ results, including sign at the zero boundary and sexagesimal/date round-trips.
 - **FR-019**: Write a string value longer than one card across `CONTINUE` cards per the long-string
   convention and ensure a `LONGSTRN` announcement card is present; the run re-parses to the same value.
 
-**Coordinate, numeric & date helpers**
+**Numeric & date helpers**
 
-- **FR-020**: Convert sexagesimal RA/Dec strings to degrees (RA hours × 15), accepting space- or
-  colon-separated forms and fractional seconds, preserving the declination sign even at 0°; and format
-  degrees back to sexagesimal RA/Dec such that the result re-parses to the input within fixed precision.
 - **FR-021**: Provide lenient numeric parsing accepting decimal-form integers (`"20.0"` → `20`).
+  (FR-020, sexagesimal coordinate conversion, was removed from scope: domain math belongs in a
+  downstream astronomy crate.)
 - **FR-022**: Parse FITS date keywords (`DATE-OBS`/`DATE-LOC`/`DATE-END`, ISO-8601 civil form) to a
-  date/time value and format back; convert between Modified Julian Date and calendar date/time.
+  date/time value and format back.
 
 **Non-functional**
 
@@ -206,7 +199,7 @@ results, including sign at the zero boundary and sexagesimal/date round-trips.
   `#![forbid(unsafe_code)]`. Reads never panic on malformed input.
 - **FR-024**: Guarantee round-trip fidelity: for a parsed header, untouched cards serialize byte-for-byte
   and re-parsing yields a semantically equal header; every emitted card is 80 bytes; the header is padded
-  to a 2880 multiple; strings, numerics, sexagesimal, and dates round-trip.
+  to a 2880 multiple; strings, numerics, and dates round-trip.
 - **FR-025**: Contain no application-specific domain types; the header is generic. An optional,
   disabled-by-default `serde` feature derives `Serialize`/`Deserialize` on the public data types.
 
@@ -231,10 +224,8 @@ results, including sign at the zero boundary and sexagesimal/date round-trips.
 - **SC-003**: Every serialized card is exactly 80 bytes and the total length is a multiple of 2880.
 - **SC-004**: CRUD by name and by occurrence — including atomic batch rejection and the ambiguity guards
   — produce the expected header state in 100% of the defined scenarios.
-- **SC-005**: Coordinate/numeric helpers: RA `10 00 00` → `150.0`; Dec `-00 30 00` → `-0.5`; integer
-  parse `20.0` → `20`; formatting `150.0` back to sexagesimal RA re-parses to `150.0`.
-- **SC-006**: Date keywords round-trip (`DATE-OBS` string → datetime → identical string); an `MJD-OBS`
-  value converts to a calendar date matching its `DATE-OBS`.
+- **SC-005**: Numeric helpers: integer parse `20.0` → `20`.
+- **SC-006**: Date keywords round-trip (`DATE-OBS` string → datetime → identical string).
 - **SC-007**: A long string round-trips through `CONTINUE` cards (reassembled on read, re-split on write).
 - **SC-008**: Builds and tests pass with only pure-Rust dependencies (no C) on Linux, Windows, and macOS,
   with default features and with `serde` enabled.
@@ -245,7 +236,7 @@ results, including sign at the zero boundary and sexagesimal/date round-trips.
 - **Input is an in-memory byte buffer**; file I/O is the caller's. The header holds no image data — the
   standalone object uses a minimal data block, and in-place editing reattaches the caller's original data.
 - **Malformed cards** are retained verbatim where possible and never cause a panic.
-- **Dependencies** are pure-Rust and MSVC-safe: `time` (dates/MJD), `thiserror` (errors), `serde`
+- **Dependencies** are pure-Rust and MSVC-safe: `time` (dates), `thiserror` (errors), `serde`
   (optional serialization), `proptest` (dev-only tests).
 - **Date/time** are timezone-naive civil values; leap seconds and non-UTC time scales are not modeled.
 
@@ -254,5 +245,7 @@ results, including sign at the zero boundary and sexagesimal/date round-trips.
 - Parsing or interpreting FITS **data** (image arrays, tables) beyond the minimal write block.
 - **Multi-extension HDU** traversal.
 - Any **application-specific field↔keyword mapping**; that belongs to a downstream adapter.
-- Full astronomical time scales (TAI/TT/leap seconds); only civil ISO-8601 and MJD↔calendar.
+- Full astronomical time scales (TAI/TT/leap seconds); only civil ISO-8601.
+- **Coordinate/epoch conversions** (sexagesimal RA/Dec, MJD↔calendar); they belong in a downstream
+  astronomy crate.
 - File-system access, compression, checksum verification, and network I/O.

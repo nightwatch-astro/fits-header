@@ -22,6 +22,10 @@ decisions that want your input (defaults chosen so work can proceed).
 
 ## Decisions resolved by the owner
 
+- **Coordinate/epoch helpers removed** (0.2.0): the `coords` feature and its sexagesimal RA/Dec and
+  MJD↔calendar functions are dropped; domain math belongs in a downstream astronomy crate. Supersedes
+  the earlier "`coords` off by default" alignment item.
+
 - **License**: single **Apache-2.0**, confirmed. Applies to both sibling crates (`xisf-header` matches).
 - **`to_bytes` on a large declared image**: capped. `to_bytes` errs with `FitsError::DataTooLarge`
   above `MAX_ZERO_FILL` (1 GiB) instead of zero-filling; `to_header_bytes` + original data is the

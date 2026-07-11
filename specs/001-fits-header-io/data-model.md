@@ -91,4 +91,4 @@ Used only when synthesizing missing structural cards on write.
 
 `parse` returns `Result<Header, FitsError>` (lenient); `to_header_bytes`/`to_bytes` are infallible.
 `FromCard`/`IntoValue` numeric impls cover `i8`–`i64`/`u8`–`u64`/`f32`/`f64`; `set_raw` is the
-vendor-keyword escape hatch. Sexagesimal and MJD helpers are behind the `coords` feature.
+vendor-keyword escape hatch.

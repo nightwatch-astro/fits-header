@@ -31,7 +31,6 @@
 //! ## Features
 //!
 //! - `serde` *(off)* — derive `Serialize`/`Deserialize` on the public types.
-//! - `coords` *(off)* — sexagesimal RA/Dec and MJD↔calendar helpers.
 #![forbid(unsafe_code)]
 
 mod dates;
@@ -42,9 +41,6 @@ mod parse;
 mod record;
 mod value;
 mod write;
-
-#[cfg(feature = "coords")]
-mod coords;
 
 /// Bytes per header card.
 pub const CARD_LEN: usize = 80;
@@ -59,13 +55,6 @@ pub use crate::parse::parse;
 pub use crate::record::{Record, RecordKind, Value};
 pub use crate::value::{parse_f64, parse_i64, Fixed, FromCard, IntoValue, Literal, Sci};
 pub use crate::write::{StructuralHints, MAX_ZERO_FILL};
-
-#[cfg(feature = "coords")]
-pub use crate::coords::{
-    deg_to_sexagesimal_dec, deg_to_sexagesimal_ra, sexagesimal_dec_to_deg, sexagesimal_ra_to_deg,
-};
-#[cfg(feature = "coords")]
-pub use crate::dates::{datetime_to_mjd, mjd_to_datetime};
 
 /// Compiles the README's code blocks as doctests so the documented API cannot drift.
 #[cfg(doctest)]
