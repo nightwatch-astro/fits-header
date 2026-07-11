@@ -9,81 +9,82 @@ All types are generic FITS constructs. No application domain types.
 
 ## `Value`
 
-The value carried by a card.
+A value card's payload.
 
 | Variant | Holds | Meaning |
 |---|---|---|
-| `Str(String)` | unescaped string content (no quotes) | a single-quoted FITS string card; `Str("")` is a present-but-empty string |
-| `Literal(String)` | verbatim token | an unquoted value: number, `T`/`F` logical, etc. |
+| `Str(String)` | unescaped string content (no quotes) | single-quoted string; `Str("")` is present-but-empty |
+| `Literal(String)` | verbatim token | unquoted value: number, `T`/`F`, etc. |
+
+## `Record`
+
+One 80-byte header line. Every variant carries `raw: Option<Box<[u8; 80]>>` (original bytes, `Some` when
+parsed and unmodified; `None` once created or edited) — untouched records serialize from `raw`.
+
+| Variant | Fields | Notes |
+|---|---|---|
+| `Value` | `keyword: String`, `value: Value`, `comment: Option<String>` | addressable value card |
+| `Commentary` | `keyword: String` (`COMMENT`/`HISTORY`/blank), `text: String` | repeatable free-text card |
+| `Opaque` | (raw only) | `HIERARCH`/unrecognized; preserved, not addressable |
+| `Continuation` | (raw only) | a `CONTINUE` card belonging to the preceding `Value` run |
 
 Rules:
-- On read, doubled `''` inside a string is collapsed to `'`; trailing spaces are trimmed.
-- On write, `Str` is re-quoted and `'`→`''` re-escaped; `Literal` is emitted verbatim, right-justified.
-
-## `Card`
-
-One header entry.
-
-| Field | Type | Rules |
-|---|---|---|
-| `keyword` | `String` | 1–8 chars from the set `A–Z 0–9 - _`; stored trimmed (no trailing pad) |
-| `value` | `Value` | see above |
-| `comment` | `Option<String>` | inline comment text (without the leading ` / `); `None` when absent |
+- `keyword` is 1–8 chars from `A–Z 0–9 - _`, stored trimmed.
+- On read, `''`→`'` is unescaped and trailing spaces trimmed for `Str`.
+- A `Value` plus its trailing `Continuation` records form one logical value.
 
 ## `Header`
 
-An ordered collection of cards representing one primary header unit.
-
 | Field | Type | Rules |
 |---|---|---|
-| `cards` | `Vec<Card>` | insertion/appearance order is preserved for the lifetime of the header and through `to_bytes` |
+| `records` | `Vec<Record>` | appearance order preserved for the header's lifetime and through serialization |
 
 Behavioral rules:
-- **Lookup** matches the exact-case trimmed keyword; the **first** occurrence wins.
-- **Create/update** (`set`, `set_f64`, …): update the first occurrence in place; append a new card if
-  absent.
-- **Delete** (`remove`): remove **all** occurrences of the keyword.
-- **Batch** (`set_many`, `remove_many`): validate every entry, then apply all or none (atomic).
-- **Typed read** (`get::<T>`): returns `None` when the keyword is absent or the value does not convert
-  to `T`. `get_str` borrows the `Str` content and returns `None` for `Str("")` (empty→absent) and for
-  `Literal`.
+- **Lookup / mutation** uses a `Key`. A bare name is **strict**: `get`/`set`/`remove` return
+  `Err(AmbiguousKeyword)` if the name occurs more than once. `(name, occurrence)` targets one record.
+- `set`: update the addressed record in place (clears its `raw`); append when the unique name is absent.
+- `append`: always add a record (a value card, or a commentary card when the keyword is
+  `COMMENT`/`HISTORY`/blank).
+- `remove`: delete the addressed record (and its `Continuation` run for a long value).
+- `get::<T>`: `None` on absent or type mismatch; `get_str` borrows `Str` content, `None` for `""`.
+- Batch (`set_many`/`remove_many`): validate all entries, then apply all or none.
+- Equality is semantic (keyword/value/comment/text); `raw` and the modified flag are not compared.
 
-State transitions: a `Header` is produced by `parse` or built empty via `Header::new()`/`default`,
-mutated by CRUD, and consumed (by value or reference) by `to_bytes`. There are no invalid resting
-states — every mutation either applies fully or is rejected before it changes the header.
+State: a `Header` comes from `parse` or `Header::new()`, is mutated by CRUD (each mutation applies fully
+or is rejected before changing anything), and is serialized by `to_header_bytes` / `to_bytes`.
+
+## `Key`
+
+| Form | Constructed from | Meaning |
+|---|---|---|
+| `Name(String)` | `&str`, `String` | strict: the sole occurrence, else `Err(AmbiguousKeyword)` |
+| `Occurrence(String, usize)` | `(&str, usize)` | the n-th occurrence (0-based) |
 
 ## `StructuralHints`
 
-Describes the FITS object structure for serialization only (never parsed out of a header).
+Used only when synthesizing missing structural cards on write.
 
-| Field | Type | Default | Maps to card |
+| Field | Type | Default | Card |
 |---|---|---|---|
 | `bitpix` | `i64` | `8` | `BITPIX` |
 | `naxis1` | `u32` | `1` | `NAXIS1` |
 | `naxis2` | `u32` | `1` | `NAXIS2` |
 
-`NAXIS` is derived (`2` for the default image); `SIMPLE` is always `T`. `Default` yields a 1×1 8-bit
-image, which produces a valid FITS object for any header.
+`SIMPLE` is always `T`; `NAXIS` is derived. `Default` = 1×1 8-bit image.
 
-## `FromCard` trait
+## Conversion traits
 
-The extension point behind `get::<T>()`.
-
-```text
-trait FromCard: Sized { fn from_card(card: &Card) -> Option<Self>; }
-```
-
-Provided impls: `String`, `f64`, `i64`, `u32`, `bool` (`T`/`F` and `Literal` `1`/`0`),
-`time::PrimitiveDateTime`. Numeric impls accept decimal-form integers (`"20.0"` → `20`).
+- `FromCard { fn from_card(record: &Record) -> Option<Self> }` — impls: `String`, `f64`, `i64`, `u32`,
+  `bool` (`T`/`F`, `1`/`0`), `time::PrimitiveDateTime`. Numeric impls accept decimal-form integers.
+- `IntoValue { fn into_value(self) -> Value }` — impls: `&str`/`String` → `Str`; `f64`/`i64`/`u32`/
+  `bool` → `Literal`; wrappers `Literal(text)`, `Fixed(f64, u8)`, `Sci(f64, u8)`.
 
 ## `FitsError`
 
-Error type for fallible operations (via `thiserror`).
-
 | Variant | Raised by | Meaning |
 |---|---|---|
-| `KeywordTooLong { keyword }` | batch/validated mutation | keyword exceeds 8 characters |
-| `InvalidKeyword { keyword }` | batch/validated mutation | keyword contains bytes outside `A–Z 0–9 - _` |
+| `AmbiguousKeyword { keyword, count }` | bare-name `get`/`set`/`remove` on a duplicated keyword | select an occurrence |
+| `KeywordTooLong { keyword }` | validated mutation | keyword exceeds 8 characters |
+| `InvalidKeyword { keyword }` | validated mutation | keyword has bytes outside `A–Z 0–9 - _` |
 
-`parse` returns `Result<Header, FitsError>` for signature stability; it is lenient and currently
-always returns `Ok`. `to_bytes` is infallible.
+`parse` returns `Result<Header, FitsError>` (lenient); `to_header_bytes`/`to_bytes` are infallible.

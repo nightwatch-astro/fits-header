@@ -1,131 +1,117 @@
 # Research & Design Decisions
 
-Design decisions for `fits-header`. The spec carries no open clarifications; this record fixes
-the *how* before implementation.
+Design decisions for `fits-header`, fixing the *how* before implementation.
 
-## 1. Card value representation
+## 1. Faithful editor, not a normalizer
 
-**Decision**: A card holds `value: Value`, where `Value` is `Str(String)` (a quoted string card,
-content unescaped) or `Literal(String)` (an unquoted token — numbers, `T`/`F`, kept verbatim).
+**Decision**: `parse` retains every card in order — value, commentary (`COMMENT`/`HISTORY`/blank),
+`HIERARCH`, and unrecognized cards. Nothing is dropped. Normalization is a caller concern.
 
-**Rationale**: Round-trip fidelity (FR-023) requires knowing whether a value was quoted, because
-the writer formats string cards (single-quoted, padded) differently from literals (right-justified).
-A bare `value: String` cannot distinguish the string `"123"` from the number `123`. The two-variant
-enum records exactly the one bit that matters and keeps the writer total.
+**Rationale**: An editor must be able to change one keyword and write the file back without discarding
+provenance or duplicating structure. Dropping commentary/structure makes faithful write-back impossible.
 
-**Alternatives considered**: (a) `value: String` with quotes retained in the stored text — encodes
-quoting via a magic leading `'`, but forces every read to re-scan/unescape and is easy to corrupt.
-(b) A fully typed value enum (Int/Float/Bool/Str/…) — pushes FITS's untyped-text reality into the
-parser, which must then guess types eagerly; rejected in favor of parsing on demand at `get::<T>()`.
+## 2. Byte-exact preservation via raw retention
 
-## 2. Typed reads — one generic accessor
+**Decision**: Each record keeps its original 80 bytes plus a `modified` flag. `to_*_bytes` emits the raw
+bytes for untouched records and the canonical formatter only for created/modified records. `PartialEq`
+is semantic (keyword/value/comment); byte-equality is a separate test check.
 
-**Decision**: `Header::get<T: FromCard>(&self, keyword: &str) -> Option<T>` over a
-`FromCard { fn from_card(&Card) -> Option<Self> }` trait, with impls for `f64`, `i64`, `u32`, `bool`,
-`String`, and `time::PrimitiveDateTime`. Named wrappers (`get_f64`, `get_i64`, `get_u32`, `get_bool`)
-delegate to it. `get_str(&self, keyword) -> Option<&str>` is a borrowing convenience that returns the
-`Str` content without allocating.
+**Rationale**: An edit changes exactly the records it touches — minimal diffs, vendor formatting and
+exact numeric text preserved — and we never have to reproduce arbitrary vendor formatting from a model.
 
-**Rationale**: One method, one place for conversion logic; the caller states intent through `T` and
-gets `None` on mismatch. Adding a new readable type is a trait impl, not a new method.
+## 3. Record taxonomy
 
-**Alternatives considered**: Five-plus concrete getters (duplicated absence/parse logic); a bare
-`get() -> &str` (pushes all lenient numeric/bool/date parsing onto callers). Rejected.
+**Decision**: A `Record` is one of `Value { keyword, value, comment }`, `Commentary { keyword, text }`
+(`COMMENT`/`HISTORY`/blank), or `Opaque` (`HIERARCH`/unrecognized). All carry raw bytes and a modified
+flag. `Value` payload is `Value::Str(String)` (quoted, unescaped) or `Value::Literal(String)` (verbatim
+token). Records are an internal detail; the public surface is accessor-first, with read-only `cards()`
+as an escape hatch.
 
-## 3. Duplicate keywords
+**Rationale**: Raw retention means opaque cards need no structural modeling. The `Str`/`Literal` split is
+the one bit the writer needs to know (quote vs. right-justify).
 
-**Decision**: Reads and single-keyword updates act on the **first** occurrence; order is preserved.
-Deletes remove **all** occurrences of the keyword.
+## 4. Strict, unified keyword access
 
-**Rationale**: Deterministic and matches the "first-seen wins" read semantics in the spec. Deleting
-all occurrences is the least surprising outcome of "remove this keyword".
+**Decision**: `get`/`set`/`remove` take `impl Into<Key>`, where `Key` is `Name(&str)` (strict) or
+`Occurrence(&str, usize)`. Bare-name operations on a **duplicated** keyword return
+`Err(AmbiguousKeyword)`; the `(name, n)` form selects one. `get_all::<T>(name)` and `count(name)` handle
+the multi case; `append(name, value)` always adds. There is no `_at`/`_nth`/`positions` API.
 
-## 4. Atomic batch mutations
+**Rationale**: Refusing ambiguity prevents silently mutating the wrong card; the optional occurrence is
+the selector. Commentary is just repeatable keywords, handled by the same methods.
 
-**Decision**: `set_many` / `remove_many` validate every entry first, then apply all or none
-(FR-011a). Validation rejects a keyword longer than 8 characters or containing bytes outside the
-FITS keyword set (`A–Z`, `0–9`, `-`, `_`). On rejection the `Header` is left untouched and a
-`FitsError` is returned.
+## 5. Read/write value symmetry
 
-**Rationale**: A partially-applied batch leaves the header in an unintended state the caller cannot
-easily reason about. Validate-then-commit is cheap for in-memory cards.
+**Decision**: Reads use `get::<T>()` over `FromCard` (impls: `String`, `f64`, `i64`, `u32`, `bool`,
+`time::PrimitiveDateTime`). Writes use `impl IntoValue`: `&str`/`String` → `Str`; `f64`/`i64`/`u32`/
+`bool` → `Literal`; wrappers `Literal(text)` (verbatim), `Fixed(v, decimals)`, `Sci(v, sig_digits)`.
 
-## 5. Parsing
+**Rationale**: One accessor and one mutator, extended by trait impls and small wrapper types rather than
+a method zoo.
 
-**Decision**: Byte-level, single pass. Walk 80-byte cards; take the keyword from columns 1–8
-(trimmed); treat a card as a value card when columns 9–10 are `= `. Classify the value: a leading
-`'` (after the indicator) is a `Str` (consume to the closing quote, unescaping `''`→`'`, trim
-trailing spaces, empty→`Str("")`); otherwise cut at an inline ` /` comment and keep the trimmed
-token as `Literal`. Stop at `END`. Skip `HIERARCH`, `COMMENT`, `HISTORY`, and blank cards. Bytes
-are treated as ASCII; non-ASCII is handled without panicking. A trailing partial card is ignored.
+## 6. Numeric formatting
 
-**Rationale**: FITS headers are fixed-width ASCII; byte indexing is simpler and faster than
-tokenizing and avoids UTF-8 assumptions. Leniency (skip, don't fail) satisfies the "malformed cards
-are skipped" assumption.
+**Decision**: Integers render as bare digits. Default `f64` uses shortest round-trip formatting,
+normalized so it reads as a float: if the shortest form has no `.`/exponent, append `.0`; uppercase any
+exponent to `E`. `Fixed(v, d)` → fixed decimals; `Sci(v, s)` → scientific with `s` significant digits.
 
-## 6. Writing
+**Rationale**: Shortest round-trip guarantees `get::<f64>` returns the same value; forcing a decimal
+point keeps FITS int/float typing correct; `Fixed`/`Sci` give explicit control when wanted.
 
-**Decision**: `Header::to_bytes(&StructuralHints) -> Vec<u8>`. Emit, in order: structural cards
-`SIMPLE`, `BITPIX`, `NAXIS`, `NAXIS1`, `NAXIS2` from `StructuralHints`; then each card as an 80-char
-record (keyword left-justified cols 1–8, `= ` cols 9–10, `Str` single-quoted with `'`→`''` and padded
-to ≥8 chars inside the quotes, `Literal` right-justified to column 30, optional ` / comment`); then
-`END`; pad the header block with spaces to a multiple of 2880; append a minimal data block padded to
-2880. `StructuralHints::default()` describes a 1×1 8-bit image (`BITPIX=8`, `NAXIS=2`,
-`NAXIS1=NAXIS2=1`).
+## 7. CONTINUE long strings
 
-**Rationale**: Mirrors the read rules exactly so `parse(to_bytes(h))` round-trips. A value that would
-overflow the 80-column card is truncated to fit (documented); over-long values are prevented earlier
-by batch validation for the common path.
+**Decision**: On read, a value card and its trailing `CONTINUE` cards are reassembled into one logical
+string (strip the trailing `&`, concatenate); the run is retained for byte-exact passthrough when
+untouched. On write, a new/edited string longer than one card is split across `CONTINUE` cards and a
+`LONGSTRN` announcement card is ensured. Continuation cards are part of their value card, not independent
+keywords — `count`/`get`/the occurrence key treat the run as one value; editing/removing replaces or
+removes the whole run.
 
-## 7. Error type
+**Rationale**: Faithful editing of real files requires understanding `CONTINUE`; supporting it on write
+too avoids a surprising length limit on string values.
 
-**Decision**: One `FitsError` enum (via `thiserror`) with variants for the fallible operations:
-`KeywordTooLong`, `InvalidKeyword`. `parse` returns `Result<Header, FitsError>` for signature
-stability; today it yields `Ok` for any input (leniency), reserving `Err` for a future strict mode.
-`to_bytes` is infallible.
+## 8. Serialization outputs
 
-**Rationale**: A single small error type keeps the surface simple. Keeping `parse` fallible avoids a
-breaking signature change if strict validation is added later.
+**Decision**: `to_header_bytes()` emits the header block only (cards, `END`, 2880 padding) for splicing
+onto existing file data. `to_bytes(&StructuralHints)` emits a standalone object (header + minimal zero
+data block sized from `BITPIX`/`NAXIS`). Mandatory structural cards are synthesized only when absent;
+`StructuralHints` is a fallback ignored when the cards are present. `StructuralHints::default()` is a
+1×1 8-bit image.
 
-## 8. Dates and MJD
+**Rationale**: In-place editing must not fabricate or discard image data — `to_header_bytes` +
+original data does that. `to_bytes` covers building a new object from scratch.
 
-**Decision**: `impl FromCard for time::PrimitiveDateTime` parses FITS `YYYY-MM-DDThh:mm:ss[.fff]`
-(timezone-naive civil time). Free functions `mjd_to_datetime(f64) -> PrimitiveDateTime` and
-`datetime_to_mjd(&PrimitiveDateTime) -> f64` convert via the Julian day: `MJD = JD − 2_400_000.5`,
-using `time::Date::to_julian_day()` / `from_julian_day()` for the date part plus the intra-day
-fraction from the time part.
+## 9. Error type
 
-**Rationale**: `time` provides Julian-day conversion and format-description parsing without C deps.
-Civil (UTC-implied) semantics match FITS `DATE-OBS`; leap seconds and TAI/TT are out of scope.
+**Decision**: One `FitsError` (via `thiserror`): `AmbiguousKeyword { keyword, count }`,
+`KeywordTooLong { keyword }`, `InvalidKeyword { keyword }`. `parse` returns `Result<Header, FitsError>`
+for signature stability (lenient today). `to_*_bytes` are infallible.
 
-## 9. Sexagesimal helpers
+**Rationale**: A single small error type; keeping `parse` fallible avoids a future breaking change.
 
-**Decision**: `sexagesimal_ra_to_deg` / `sexagesimal_dec_to_deg` accept space- or colon-separated
-`H M S` / `±D M S` with optional fractional seconds; Dec preserves the sign even when degrees are `0`
-(parse the sign from the leading token, not from the numeric degree value). `deg_to_sexagesimal_ra` /
-`deg_to_sexagesimal_dec` format back with fixed fractional-second precision so the string re-parses to
-the original degrees within that precision. `parse_f64` / `parse_i64` accept decimal-form integers
-(`"20.0"` → `20`).
+## 10. Dates, MJD, sexagesimal
 
-**Rationale**: Real headers mix separators and fractional seconds. Sign-from-token is the only way to
-represent `-0.5°` as `-00 30 00`.
+**Decision**: `impl FromCard for time::PrimitiveDateTime` parses `YYYY-MM-DDThh:mm:ss[.fff]` (civil).
+`mjd_to_datetime`/`datetime_to_mjd` convert via Julian day (`MJD = JD − 2_400_000.5`). Sexagesimal
+parsers accept space/colon separators and fractional seconds and preserve the declination sign at 0°
+(sign taken from the leading token); formatters round-trip within fixed precision.
 
-## 10. Optional serialization
+**Rationale**: `time` supplies Julian-day and format parsing without C deps; sign-from-token is the only
+way to represent `-0.5°` as `-00 30 00`.
 
-**Decision**: An off-by-default `serde` feature derives `Serialize`/`Deserialize` on `Header`, `Card`,
-`Value`, and `StructuralHints` (with `time/serde` enabled for datetime fields). No effect on the
-default build.
+## 11. Optional serialization
 
-**Rationale**: Consumers who serialize a header to JSON/etc. opt in; others incur no dependency or
-compile cost.
+**Decision**: An off-by-default `serde` feature derives `Serialize`/`Deserialize` on the public data
+types (`time/serde` enabled with it).
 
-## 11. Testing strategy
+**Rationale**: Consumers who serialize a header opt in; others pay nothing.
 
-**Decision**: `proptest` generates arbitrary valid headers (random valid keywords, `Str`/`Literal`
-values, optional comments) and asserts: `parse(to_bytes(h))` yields the same ordered cards; every
-emitted card is exactly 80 bytes; total length is a multiple of 2880. Spec acceptance scenarios
-(US1–US4) become example tests; helper boundary cases (RA `10 00 00`→150, Dec `-00 30 00`→−0.5,
-`20.0`→20, date and MJD round-trips) are asserted directly.
+## 12. Testing strategy
 
-**Rationale**: The round-trip contract is a property, not a handful of examples; property testing
-covers the input space the examples cannot.
+**Decision**: `proptest` generates arbitrary headers and asserts (a) untouched cards serialize
+byte-for-byte, (b) `parse(to_header_bytes(h))` is semantically equal to `h`, (c) every emitted card is
+80 bytes, (d) total length is a multiple of 2880. Spec scenarios become example tests; helper boundary
+cases are asserted directly.
+
+**Rationale**: The round-trip contract is a property; property testing covers the input space examples
+cannot.

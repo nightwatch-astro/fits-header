@@ -6,300 +6,253 @@
 
 **Status**: Draft
 
-**Input**: User description: "Generic, pure-Rust (MSVC-safe, minimal deps) publishable FITS header read/write library for the `fits-header` crate — extract all header cards from a FITS file, CRUD single or multiple header keywords, serialize the header back into a valid FITS object, with coordinate/date/number helpers and a round-trip guarantee."
+**Input**: A pure-Rust, MSVC-safe FITS header library that faithfully reads, edits, and writes one
+FITS header unit — preserving every card byte-for-byte except the ones the caller changes — with
+strict keyword access, atomic batch edits, coordinate/date helpers, and a round-trip guarantee.
 
 ## User Scenarios & Testing *(mandatory)*
 
-The consumers of this feature are **developers** integrating FITS metadata handling into their
-own tools. The "interface" is a library API; each user story below is a standalone slice that
-can be built, tested, and demonstrated on its own.
+The consumers of this feature are **developers** integrating FITS metadata handling into their own
+tools. The interface is a library API; each user story below is a standalone slice that can be built,
+tested, and demonstrated on its own.
 
-### User Story 1 - Extract every header card from a FITS file (Priority: P1)
+### User Story 1 - Read a header faithfully (Priority: P1)
 
-A developer has the raw bytes of a FITS file and needs to read all of its header
-metadata — every keyword, its value, and any inline comment — in the order they appear.
+A developer parses the bytes of a FITS file and reads its header metadata — every keyword, value, and
+comment, in order — while nothing is silently discarded.
 
-**Why this priority**: Reading is the foundational capability and an immediately useful
-MVP on its own: it lets a caller inspect a FITS file's metadata (the existing alm use
-case). Nothing else in the feature is demonstrable without a header to work with.
+**Why this priority**: Reading is the foundation and a useful MVP: inspect a file's metadata. Faithful
+retention (every card kept, in order) is what later lets an edit be written back without corrupting the
+file.
 
-**Independent Test**: Feed the byte content of a representative FITS file to the parser
-and assert that the returned header contains the expected keywords, values, and comments,
-in file order, stopping at the `END` card.
+**Independent Test**: Parse a representative header and assert the expected keywords/values/comments
+are readable in order; commentary and vendor cards are retained; `CONTINUE`-continued values read as
+one logical value.
 
 **Acceptance Scenarios**:
 
-1. **Given** the bytes of a FITS file whose primary header contains
-   `OBJECT  = 'M31     '`, **When** the caller parses the bytes, **Then** the header
-   exposes a card with keyword `OBJECT` and string value `M31`.
-2. **Given** a header card `EXPTIME = 120.0 / seconds`, **When** parsed, **Then** the
-   numeric value `120.0` is readable and the inline comment `seconds` is not part of the value.
-3. **Given** a header containing `COMMENT`, `HISTORY`, and `HIERARCH …` cards, **When**
-   parsed, **Then** those cards are ignored and do not appear as retrievable keywords.
-4. **Given** bytes with trailing content after the `END` card, **When** parsed, **Then**
-   parsing stops at `END` and later bytes do not add cards.
+1. **Given** a header with `OBJECT = 'M31     '`, **When** parsed, **Then** `get::<String>("OBJECT")`
+   is `Some("M31")`.
+2. **Given** `EXPTIME = 120.0 / seconds`, **When** parsed, **Then** `get::<f64>("EXPTIME")` is
+   `Some(120.0)` and the comment is not part of the value.
+3. **Given** a header containing `COMMENT`, `HISTORY`, and `HIERARCH` cards, **When** parsed, **Then**
+   those cards are **retained** (not dropped) but are not addressable as ordinary 8-character keywords.
+4. **Given** a long string value split across `CONTINUE` cards, **When** parsed, **Then**
+   `get::<String>` returns the reassembled value.
+5. **Given** bytes after the `END` card, **When** parsed, **Then** parsing of the header stops at `END`.
 
 ---
 
-### User Story 2 - Create, update, and delete keywords — single and multiple (Priority: P2)
+### User Story 2 - Edit keywords with strict, unambiguous CRUD (Priority: P1)
 
-A developer holds a parsed (or newly built) header and needs to add new keywords (including
-arbitrary vendor-specific ones), change existing values/comments, and remove keywords —
-operating either on one keyword at a time or on several in a single call.
+A developer creates, updates, and deletes keywords — by name for the common unique case, and by an
+explicit occurrence when a keyword repeats — and the library refuses ambiguous operations rather than
+guessing.
 
-**Why this priority**: This is the "CRUD within a file" capability. It builds directly on
-the header produced by US1 and, together with US3, enables editing a FITS file's metadata.
+**Why this priority**: Editing is the core purpose. Strictness prevents silently mutating the wrong
+card; atomic batches keep the header consistent on failure.
 
-**Independent Test**: Starting from a header (parsed or empty), perform create/update/delete
-operations on single and multiple keywords and assert the resulting ordered card set matches
-expectations.
+**Independent Test**: On a parsed or empty header, exercise create/update/delete by name and by
+occurrence, batch operations, and the ambiguity guards; assert the resulting ordered records.
 
 **Acceptance Scenarios**:
 
-1. **Given** a header without `FILTER`, **When** the caller sets `FILTER` to `Ha`, **Then**
-   a new card `FILTER='Ha'` is appended and readable.
-2. **Given** a header with `GAIN = 100`, **When** the caller sets `GAIN` to `120`, **Then**
-   the existing card is updated in place (order preserved) and reads back as `120`.
-3. **Given** a header, **When** the caller applies a batch of several keyword updates in one
-   call, **Then** all named keywords reflect their new values and untouched cards are unchanged.
-4. **Given** a header containing `TEMP` and `NOTES`, **When** the caller removes both in one
-   call, **Then** neither keyword is retrievable and the remaining cards keep their order.
-5. **Given** a caller needs a non-standard keyword (vendor quirk), **When** they set that
-   arbitrary keyword, **Then** it is stored and later serialized without special-casing.
-6. **Given** a batch update where one entry is invalid (e.g. a keyword exceeding the
-   8-character field), **When** the batch is applied, **Then** the operation is rejected and
-   no keyword in the batch is changed (all-or-nothing).
+1. **Given** a header with a single `GAIN`, **When** `set("GAIN", 120)`, **Then** that card is updated
+   in place; **When** `set("FILTER", "Ha")` and `FILTER` is absent, **Then** a card is appended.
+2. **Given** a keyword that appears more than once, **When** `get`/`set`/`remove` is called with the
+   bare name, **Then** it returns `Err(AmbiguousKeyword)`; **When** called with `("GAIN", 1)`, **Then**
+   it targets exactly the second occurrence.
+3. **Given** repeatable `HISTORY` cards, **When** `append("HISTORY", "calibrated")`, **Then** a new
+   history line is added; `get_all::<String>("HISTORY")` returns all lines in order.
+4. **Given** a batch update where one entry has an invalid keyword, **When** applied, **Then** the whole
+   batch is rejected and the header is unchanged (atomic).
+5. **Given** an arbitrary vendor keyword, **When** set, **Then** it is stored and later serialized.
 
 ---
 
-### User Story 3 - Serialize a header back into a valid FITS object (Priority: P2)
+### User Story 3 - Write back without corrupting the file (Priority: P1)
 
-A developer needs to turn a header (parsed and possibly edited, or freshly built) back into
-bytes that form a valid FITS object, so the header can be written to a file or fed to another
-FITS-aware tool.
+A developer serializes an edited header. Cards left untouched come back byte-for-byte identical; only
+created or modified cards are re-rendered. The header can be produced either as a standalone FITS
+object or as a header block to splice back onto an existing file's data.
 
-**Why this priority**: Completes the read → edit → write round-trip. On its own it delivers
-value (produce a minimal valid FITS object from a set of keywords); combined with US1/US2 it
-enables full in-place metadata editing.
+**Why this priority**: Faithful write-back is what makes in-place editing safe. Byte-exact preservation
+keeps diffs minimal and leaves vendor formatting and the file's image data intact.
 
-**Independent Test**: Build a header, serialize it with structural hints, and assert the byte
-output is well-formed (80-byte cards, structural cards present, `END` present, length a
-multiple of 2880) and that re-parsing it reproduces the original cards.
+**Independent Test**: Parse, edit one keyword, serialize, and assert every untouched card is byte-equal
+to its input and re-parsing reproduces the header; assert 80-byte cards and 2880-byte padding.
 
 **Acceptance Scenarios**:
 
-1. **Given** a header with several keywords, **When** serialized, **Then** the output begins
-   with the structural cards `SIMPLE`, `BITPIX`, `NAXIS`, `NAXIS1`, `NAXIS2`, followed by the
-   header's cards, followed by `END`.
-2. **Given** any header, **When** serialized, **Then** every emitted card is exactly 80 bytes
-   and the total serialized length is a whole multiple of 2880 bytes.
-3. **Given** default structural hints, **When** serialized, **Then** the structural cards
-   describe a 1×1 8-bit image and a minimal data block follows the header.
-4. **Given** a header, **When** it is serialized and the result re-parsed, **Then** the
-   re-parsed header contains the same keyword/value/comment cards as the original
-   (round-trip equality for representative headers).
+1. **Given** a parsed header, **When** one keyword is edited and `to_header_bytes()` is produced,
+   **Then** every card except the edited one is byte-identical to the input, and re-parsing yields an
+   equal header.
+2. **Given** any header, **When** serialized, **Then** every emitted card is exactly 80 bytes and the
+   output length is a multiple of 2880.
+3. **Given** a from-scratch header without `SIMPLE`, **When** `to_bytes(&StructuralHints::default())`,
+   **Then** the mandatory `SIMPLE/BITPIX/NAXIS/NAXIS1/NAXIS2` cards are synthesized and a minimal data
+   block follows; **Given** a parsed header that already has them, **Then** they are not duplicated.
+4. **Given** a string value longer than one card, **When** serialized, **Then** it is written across
+   `CONTINUE` cards with a `LONGSTRN` announcement, and re-parsing reassembles it.
 
 ---
 
-### User Story 4 - Interpret and format coordinate, numeric, and date values (Priority: P3)
+### User Story 4 - Interpret and format coordinates, numbers, and dates (Priority: P2)
 
-A developer needs to interpret common FITS value encodings and convert them both ways:
-sexagesimal right ascension / declination (read *and* write), numeric strings that use a
-decimal form for integer quantities, ISO-8601 date/time keywords, and Modified Julian Dates.
+A developer converts sexagesimal RA/Dec (both directions), decimal-form integers, ISO-8601 dates, and
+Modified Julian Dates.
 
-**Why this priority**: A convenience layer on top of the header. Useful but not required to
-read, edit, or write raw headers; it can ship after the core.
+**Why this priority**: A convenience layer over the header; useful but not required to read, edit, or
+write raw cards.
 
-**Independent Test**: Call the helper functions (and the datetime-typed read) with
-representative inputs and assert the converted results, including sign handling at the zero
-boundary and round-trip between sexagesimal strings and degrees.
+**Independent Test**: Call the helpers and the datetime-typed read with representative inputs and assert
+results, including sign at the zero boundary and sexagesimal/date round-trips.
 
 **Acceptance Scenarios**:
 
-1. **Given** an RA string `10 00 00` (or `10:00:00`, or with fractional seconds), **When**
-   converted, **Then** the result is `150.0` degrees (hours × 15).
-2. **Given** a Dec string `-00 30 00`, **When** converted, **Then** the result is `-0.5`
-   degrees — the negative sign is preserved even though the degrees field is `0`.
-3. **Given** the degree value `150.0`, **When** formatted as sexagesimal RA, **Then** the
-   result is a string that parses back to `150.0` (value-level round-trip).
-4. **Given** a numeric string `20.0` where an integer is expected, **When** parsed as an
-   integer, **Then** the result is `20`.
-5. **Given** a card `DATE-OBS= '2026-07-11T22:15:03'`, **When** read as a datetime, **Then**
-   the caller receives a parsed date/time value; formatting it back yields the same string.
-6. **Given** `MJD-OBS = 60867.0` and its matching `DATE-OBS`, **When** the MJD is converted
-   to a calendar date, **Then** it agrees with `DATE-OBS` (and the inverse conversion holds).
+1. **Given** RA `10 00 00` (or `10:00:00`, or fractional seconds), **When** converted, **Then** `150.0`.
+2. **Given** Dec `-00 30 00`, **When** converted, **Then** `-0.5` (sign preserved at 0°).
+3. **Given** `150.0`, **When** formatted as sexagesimal RA, **Then** it re-parses to `150.0`.
+4. **Given** `20.0` where an integer is expected, **When** parsed, **Then** `20`.
+5. **Given** `DATE-OBS = '2026-07-11T22:15:03'`, **When** read as a datetime, **Then** a parsed value;
+   formatting it back yields the same string.
+6. **Given** an `MJD-OBS` value, **When** converted to a calendar date, **Then** it agrees with the
+   matching `DATE-OBS`.
 
 ---
 
 ### Edge Cases
 
-- **Empty string value** (`KEYWORD = '        '`): treated as present-but-empty → the card has
-  no meaningful string value rather than a string of spaces.
-- **Doubled single quotes inside a string** (`'O''Brien'`): unescaped to `O'Brien` on read and
-  re-escaped on write so the value round-trips.
-- **Missing structural information on write**: structural hints default to a 1×1 8-bit image so
-  serialization always yields a valid FITS object.
-- **Keyword longer than 8 characters / non-standard keyword**: standard cards use the trimmed
-  8-character keyword field; longer/HIERARCH-style keys are ignored on read, but arbitrary ≤8
-  keys can be written via the escape hatch.
-- **Duplicate keywords in a header**: reads and single-keyword updates act on the first
-  occurrence (first-seen wins); order is otherwise preserved.
-- **No `END` card present**: parsing consumes the available cards and stops at end of input.
-- **Typed read of a value that does not match the requested type** (e.g. non-numeric text via a
-  numeric read, or an unparseable `DATE-OBS`): the typed read reports absence rather than a wrong
-  value; it never panics.
-- **Sexagesimal with mixed separators / fractional seconds** (`10:00:00.5` vs `10 00 00.5`):
-  both are accepted.
+- **Empty string value** (`KEYWORD = '        '`): present-but-empty; `get::<String>` yields `None`.
+- **Doubled single quotes** (`'O''Brien'`): unescaped on read, re-escaped on write.
+- **Duplicate keyword**: bare-name `get`/`set`/`remove` return `Err(AmbiguousKeyword)`; use `("NAME", n)`.
+- **Commentary** (`COMMENT`/`HISTORY`/blank): repeatable free-text keywords; addressed via `get_all`,
+  `append`, and `("NAME", n)`.
+- **`HIERARCH` / non-standard / blank cards**: retained verbatim, not addressable as 8-char keywords.
+- **`CONTINUE` run**: a value plus its trailing `CONTINUE` cards is one logical value; editing or
+  removing the value replaces or removes the whole run.
+- **No `END` card**: parsing stops at end of input.
+- **Type mismatch on a typed read**: returns `None`, never panics.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-**Reading (extract all header cards)**
+**Reading**
 
-- **FR-001**: The library MUST parse a caller-provided byte buffer into an ordered header of
-  cards, each card carrying a keyword, a value, and an optional comment.
-- **FR-002**: The library MUST read the header as 80-byte cards within 2880-byte blocks and MUST
-  stop parsing at the `END` card.
-- **FR-003**: The library MUST ignore `HIERARCH`, `COMMENT`, and `HISTORY` cards (they do not
-  become retrievable keywords).
-- **FR-004**: The library MUST interpret single-quoted string values: unescape doubled `''` to a
-  single `'`, trim trailing spaces, and treat an all-blank string as having no value.
-- **FR-005**: The library MUST extract numeric values by stripping a leading `= ` and surrounding
-  spaces and cutting the value at an inline ` /` comment before trimming.
-- **FR-006**: Keyword lookups MUST match on the exact case of the trimmed 8-character keyword field.
+- **FR-001**: Parse a byte buffer into an ordered header of records, each retaining its original 80
+  bytes so untouched records serialize byte-for-byte.
+- **FR-002**: Read 80-byte cards in 2880-byte blocks; stop at `END`.
+- **FR-003**: Retain `HIERARCH`, `COMMENT`, `HISTORY`, blank, and unrecognized cards for fidelity;
+  `HIERARCH`/blank/unrecognized are not addressable as 8-character keywords.
+- **FR-004**: Interpret single-quoted strings: unescape `''`→`'`, trim trailing spaces, all-blank → no
+  value.
+- **FR-005**: Extract numeric/logical values by stripping the `= ` indicator and cutting an inline ` /`
+  comment before trimming.
+- **FR-006**: Reassemble a value card and its trailing `CONTINUE` cards (long-string convention) into a
+  single logical value on read.
+- **FR-007**: Keyword lookup matches the exact-case trimmed 8-character keyword.
 
-**Header data structure & CRUD**
+**Header data structure & access**
 
-- **FR-007**: The library MUST expose a header data structure that is an ordered sequence of cards
-  `{ keyword, value, comment? }`, allowing callers to read the cards out, mutate them, and put
-  them back for serialization.
-- **FR-008**: The library MUST provide a single generic typed read, `get::<T>(keyword)`, that
-  interprets a card's value as the requested type via an extensible conversion trait, supporting at
-  least text, 64-bit float, 64-bit signed integer, 32-bit unsigned integer, boolean (FITS `T`/`F`),
-  and a date/time type; it MUST return absence when the keyword is missing or the value cannot be
-  interpreted as the requested type. Named convenience wrappers (`get_str`, `get_f64`, `get_i64`,
-  `get_u32`, `get_bool`) MUST delegate to it.
-- **FR-009**: The library MUST allow creating/inserting a card for an arbitrary keyword (an escape
-  hatch for vendor-specific keys), setting its value and optional comment.
-- **FR-010**: The library MUST allow updating the value (and comment) of an existing keyword, both
-  for a single keyword and for several keywords supplied together in one operation. Updating a
-  keyword that is absent MUST create it.
-- **FR-011**: The library MUST allow deleting a keyword, both for a single keyword and for several
-  keywords supplied together in one operation.
-- **FR-011a**: Batch mutations (multi-keyword create/update/delete) MUST be atomic: the library
-  validates every entry first and applies the whole batch, or, if any entry is rejected, applies
-  none and leaves the header unchanged.
-- **FR-012**: Card order MUST be preserved: in-place updates keep a card's position, newly created
-  cards are appended, and order is retained through a serialize→parse round-trip.
+- **FR-008**: Expose a `Header` of ordered records; each record retains original bytes and a modified
+  flag. Equality (`PartialEq`) compares semantically (keyword/value/comment), not bytes.
+- **FR-009**: Provide one generic typed read, `get::<T>(key)`, over an extensible conversion trait,
+  supporting text, `f64`, `i64`, `u32`, `bool` (`T`/`F`), and a date/time type; return `None` on absent
+  or type mismatch.
+- **FR-010**: Address records by a key that is either a bare name (strict) or `(name, occurrence)`.
+  Bare-name `get`/`set`/`remove` MUST return `Err(AmbiguousKeyword)` when the name is duplicated; the
+  `(name, occurrence)` form targets exactly one record.
+- **FR-011**: `set(key, value)` updates the addressed record in place, or appends when the (unique) name
+  is absent. `append(name, value)` always adds a record. `remove(key)` deletes the addressed record.
+- **FR-012**: `get_all::<T>(name)` returns every value for a name in order; `count(name)` returns the
+  number of occurrences. Commentary keywords (`COMMENT`/`HISTORY`/blank) use these same methods.
+- **FR-013**: Writes are type-directed via a value-conversion trait: text → quoted string; numbers/bool
+  → literal; wrappers `Literal(text)` (verbatim), `Fixed(value, decimals)`, and `Sci(value, digits)`
+  control literal formatting. Default `f64` formatting is shortest round-trip, normalized to read as a
+  float (decimal point or `E` exponent present).
+- **FR-014**: Batch mutations validate every entry first and apply all-or-nothing (atomic); on any
+  rejection the header is unchanged. Keyword validation: ≤8 characters, bytes in `A–Z 0–9 - _`.
+- **FR-015**: Serialization emits untouched records byte-for-byte and re-renders only created/modified
+  records; card order is preserved.
 
-**Writing (serialize to a valid FITS object)**
+**Writing**
 
-- **FR-013**: The library MUST serialize the header to 80-character cards with the keyword
-  left-justified in columns 1–8, `= ` in columns 9–10, string values single-quoted and padded to
-  at least 8 characters inside the quotes, numeric values right-justified to column 30, and an
-  optional ` / comment` suffix.
-- **FR-014**: The library MUST prepend the structural cards `SIMPLE`, `BITPIX`, `NAXIS`, `NAXIS1`,
-  `NAXIS2` derived from caller-supplied structural hints, defaulting to a 1×1 8-bit image when
-  hints are not specified.
-- **FR-015**: The library MUST append an `END` card, pad the header to a whole multiple of 2880
-  bytes, and follow it with a minimal data block so the result is a valid FITS object.
+- **FR-016**: `to_header_bytes()` produces the header block only (cards, `END`, padded to a 2880
+  multiple) for splicing onto existing file data.
+- **FR-017**: `to_bytes(&StructuralHints)` produces a standalone FITS object: header block plus a
+  minimal zero data block sized from the effective `BITPIX`/`NAXIS`. Mandatory structural cards
+  (`SIMPLE`, `BITPIX`, `NAXIS`, `NAXIS1`, `NAXIS2`) are synthesized only when absent; `StructuralHints`
+  is a fallback, ignored when those cards are already present. Default hints describe a 1×1 8-bit image.
+- **FR-018**: Render a value card as an 80-character record: keyword left-justified in columns 1–8,
+  `= ` in 9–10, strings single-quoted with `'`→`''` and padded to ≥8 chars inside the quotes, literals
+  right-justified to column 30, optional ` / comment`. Commentary keywords (`COMMENT`/`HISTORY`/blank)
+  render their payload as free text (columns 9–80, no `=`).
+- **FR-019**: Write a string value longer than one card across `CONTINUE` cards per the long-string
+  convention and ensure a `LONGSTRN` announcement card is present; the run re-parses to the same value.
 
 **Coordinate, numeric & date helpers**
 
-- **FR-016**: The library MUST convert a sexagesimal right-ascension string to degrees (hours × 15),
-  accepting both space- and colon-separated forms and fractional seconds.
-- **FR-017**: The library MUST convert a sexagesimal declination string to degrees, accepting both
-  space- and colon-separated forms and fractional seconds, and preserving the sign even when the
-  degrees field is `0`.
-- **FR-018**: The library MUST format a degree value back into a sexagesimal right-ascension and a
-  sexagesimal declination string, such that the formatted string parses back to the original degrees
-  (value-level round-trip within a documented precision).
-- **FR-019**: The library MUST provide lenient numeric parsing that accepts a decimal-form string
-  (e.g. `20.0`) where an integer is expected and yields the integer value (`20`).
-- **FR-020**: The library MUST parse FITS date keywords (`DATE-OBS`, `DATE-LOC`, `DATE-END`, in
-  ISO-8601 `YYYY-MM-DDThh:mm:ss[.fff]` form) into a date/time value and format such a value back to
-  the same string.
-- **FR-021**: The library MUST convert between a Modified Julian Date (`MJD-OBS`, `MJD-AVG`) and a
-  calendar date/time.
+- **FR-020**: Convert sexagesimal RA/Dec strings to degrees (RA hours × 15), accepting space- or
+  colon-separated forms and fractional seconds, preserving the declination sign even at 0°; and format
+  degrees back to sexagesimal RA/Dec such that the result re-parses to the input within fixed precision.
+- **FR-021**: Provide lenient numeric parsing accepting decimal-form integers (`"20.0"` → `20`).
+- **FR-022**: Parse FITS date keywords (`DATE-OBS`/`DATE-LOC`/`DATE-END`, ISO-8601 civil form) to a
+  date/time value and format back; convert between Modified Julian Date and calendar date/time.
 
-**Non-functional constraints**
+**Non-functional**
 
-- **FR-022**: The library MUST use only pure-Rust, MSVC-safe dependencies (no C or system
-  libraries) and MUST remain publishable to crates.io. The runtime dependency set is limited to a
-  date/time library and an error-handling library; an optional off-by-default `serde` capability may
-  add derive support.
-- **FR-023**: The library MUST guarantee round-trip fidelity: re-parsing a serialized header
-  reproduces the same keyword/value/comment cards for representative headers, every emitted card is
-  exactly 80 bytes, the serialized header is padded to a 2880-byte multiple, and string, numeric,
-  sexagesimal, and date values survive the round-trip.
-- **FR-024**: The library MUST NOT contain application-specific domain types; it exposes only a
-  generic header. Any field↔keyword mapping to domain models is the responsibility of a downstream
-  adapter.
-- **FR-025**: The library MUST offer `Serialize`/`Deserialize` for its public data types behind an
-  optional, disabled-by-default `serde` feature, so consumers who do not need it incur no cost.
+- **FR-023**: Use only pure-Rust, MSVC-safe dependencies (no C or system libraries); remain publishable.
+  `#![forbid(unsafe_code)]`. Reads never panic on malformed input.
+- **FR-024**: Guarantee round-trip fidelity: for a parsed header, untouched cards serialize byte-for-byte
+  and re-parsing yields a semantically equal header; every emitted card is 80 bytes; the header is padded
+  to a 2880 multiple; strings, numerics, sexagesimal, and dates round-trip.
+- **FR-025**: Contain no application-specific domain types; the header is generic. An optional,
+  disabled-by-default `serde` feature derives `Serialize`/`Deserialize` on the public data types.
 
-### Key Entities *(include if feature involves data)*
+### Key Entities
 
-- **Header**: An ordered collection of cards representing one FITS header unit. Supports reading
-  cards out, a generic typed read (`get::<T>`), CRUD over keywords, and serialization back to bytes.
-- **Card**: A single header entry — a keyword (≤8-character standard field), a value (as text),
-  and an optional inline comment.
-- **Structural Hints**: Caller-supplied description of the FITS object's structure used only when
-  writing (image dimensions and bit depth), defaulting to a 1×1 8-bit image.
-- **Value conversion trait**: The extension point behind `get::<T>()` that turns a card's text into
-  a requested Rust type (text, numbers, boolean, date/time). `Header`, `Card`, and `Structural
-  Hints` gain `Serialize`/`Deserialize` when the `serde` feature is enabled.
+- **Header**: Ordered records for one header unit; generic typed reads, strict keyword/occurrence access,
+  CRUD, and serialization. Retains original bytes for byte-exact preservation.
+- **Record (Card)**: One 80-byte header line — a value card (keyword, value, comment), a commentary card
+  (keyword, free text), or a preserved opaque card. Carries original bytes and a modified flag.
+- **Value**: A value card's payload — a quoted string or an unquoted literal token.
+- **Key**: A record selector — a bare name (strict/unique) or `(name, occurrence)`.
+- **StructuralHints**: Image geometry/bit depth used only when synthesizing missing structural cards on
+  write; defaults to a 1×1 8-bit image.
 
 ## Success Criteria *(mandatory)*
 
-### Measurable Outcomes
-
-- **SC-001**: Given a representative FITS file, 100% of the header cards preceding `END` (excluding
-  ignored `HIERARCH`/`COMMENT`/`HISTORY`) are extracted with their correct keyword, value, and comment.
-- **SC-002**: For representative headers, serializing a header and re-parsing the result yields an
-  identical ordered set of keyword/value/comment cards (round-trip equality), verified by
-  property-based tests over generated headers.
-- **SC-003**: For any serialized header, every card is exactly 80 bytes and the total serialized
-  length is a whole multiple of 2880 bytes.
-- **SC-004**: Creating, updating, and deleting keywords — exercised for both a single keyword and a
-  batch of several — produces the expected header state in 100% of the defined CRUD scenarios.
-- **SC-005**: The coordinate/numeric helpers produce correct results on the boundary cases:
-  RA `10 00 00` → `150.0`, Dec `-00 30 00` → `-0.5` (sign preserved at 0°), integer parse of
-  `20.0` → `20`, and formatting `150.0` back to a sexagesimal RA that re-parses to `150.0`.
-- **SC-006**: FITS date keywords round-trip (`DATE-OBS` string → date/time → identical string), and
-  an `MJD-OBS` value converts to a calendar date that agrees with its matching `DATE-OBS`.
-- **SC-007**: The library builds and passes its test suite using only pure-Rust dependencies (no C
-  dependencies) on Linux, Windows, and macOS, with default features and with the `serde` feature enabled.
+- **SC-001**: For a representative header, all cards preceding `END` are retained in order, and standard
+  value keywords read back with correct value and comment.
+- **SC-002**: For a parsed header with one keyword edited, serializing leaves every untouched card
+  byte-identical to its input, and re-parsing yields a semantically equal header (verified by property
+  tests over generated headers).
+- **SC-003**: Every serialized card is exactly 80 bytes and the total length is a multiple of 2880.
+- **SC-004**: CRUD by name and by occurrence — including atomic batch rejection and the ambiguity guards
+  — produce the expected header state in 100% of the defined scenarios.
+- **SC-005**: Coordinate/numeric helpers: RA `10 00 00` → `150.0`; Dec `-00 30 00` → `-0.5`; integer
+  parse `20.0` → `20`; formatting `150.0` back to sexagesimal RA re-parses to `150.0`.
+- **SC-006**: Date keywords round-trip (`DATE-OBS` string → datetime → identical string); an `MJD-OBS`
+  value converts to a calendar date matching its `DATE-OBS`.
+- **SC-007**: A long string round-trips through `CONTINUE` cards (reassembled on read, re-split on write).
+- **SC-008**: Builds and tests pass with only pure-Rust dependencies (no C) on Linux, Windows, and macOS,
+  with default features and with `serde` enabled.
 
 ## Assumptions
 
-- **Scope is a single (primary) header unit.** "All headers" means all cards of one header unit up
-  to `END`. Multi-extension FITS files (additional HDUs beyond the primary) are out of scope for
-  this feature; the parser reads one header and the serializer writes one header plus a minimal data
-  block.
-- **Input is an in-memory byte buffer** supplied by the caller; file I/O (opening/reading paths) is
-  the caller's responsibility, not this library's.
-- **FITS conformance**: input follows the FITS convention of 80-byte cards in 2880-byte blocks;
-  malformed cards are skipped/ignored rather than causing the whole parse to fail.
-- **Duplicate keywords**: reads and single-keyword updates operate on the first occurrence;
-  bulk operations address distinct keywords.
-- **Values are held as text** and interpreted on demand by the generic typed read and helpers.
-- **Dependencies** are pure-Rust and MSVC-safe: `time` (date/time and MJD), `thiserror` (errors),
-  `serde` (optional serialization), and `proptest` (dev-only tests).
-- **Date/time semantics**: FITS date keywords are treated as timezone-naive civil date/times (UTC
-  implied); leap seconds and non-UTC time scales (TAI/TT) are not modeled.
-- **License/packaging**: the crate is already scaffolded (Apache-2.0, publishable). The project
-  constitution is currently the unratified template, so no additional governance constraints apply
-  beyond those stated here.
+- **Scope is a single (primary) header unit** up to `END`; multi-extension HDUs are out of scope.
+- **Input is an in-memory byte buffer**; file I/O is the caller's. The header holds no image data — the
+  standalone object uses a minimal data block, and in-place editing reattaches the caller's original data.
+- **Malformed cards** are retained verbatim where possible and never cause a panic.
+- **Dependencies** are pure-Rust and MSVC-safe: `time` (dates/MJD), `thiserror` (errors), `serde`
+  (optional serialization), `proptest` (dev-only tests).
+- **Date/time** are timezone-naive civil values; leap seconds and non-UTC time scales are not modeled.
 
 ## Out of Scope
 
-- Parsing or interpreting FITS **data** (image arrays, tables) beyond emitting the minimal
-  placeholder data block required for a valid object on write.
-- **Multi-extension HDU** traversal (headers of extension units beyond the primary).
-- Any **application-specific field↔keyword mapping** (e.g. mapping `EXPTIME` → a domain
-  `exposure` field); that belongs to a downstream adapter.
-- Full **astronomical time scales** (TAI/TT/leap-second-precise epochs); only civil ISO-8601 and
-  MJD↔calendar conversion are in scope.
+- Parsing or interpreting FITS **data** (image arrays, tables) beyond the minimal write block.
+- **Multi-extension HDU** traversal.
+- Any **application-specific field↔keyword mapping**; that belongs to a downstream adapter.
+- Full astronomical time scales (TAI/TT/leap seconds); only civil ISO-8601 and MJD↔calendar.
 - File-system access, compression, checksum verification, and network I/O.
