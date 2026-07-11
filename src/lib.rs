@@ -24,9 +24,9 @@
 //!
 //! ## Design
 //!
-//! - **Pure Rust, MSVC-safe** — minimal dependencies, no C libraries.
-//! - **Byte-exact** — an untouched card (and untouched long-string run) re-emits identical bytes.
-//! - **Strict** — ambiguous keyword access errors instead of guessing.
+//! - Pure Rust, no C or system libraries; builds with the MSVC toolchain.
+//! - An untouched card (and untouched long-string run) re-emits identical bytes.
+//! - Ambiguous keyword access errors instead of guessing.
 //!
 //! ## Features
 //!

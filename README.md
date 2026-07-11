@@ -3,20 +3,18 @@
 A pure-Rust library for reading and writing the header of a
 [FITS](https://fits.gsfc.nasa.gov/fits_standard.html) file.
 
-- **Pure Rust, MSVC-safe** — no C or system libraries; minimal dependency footprint.
-- **Faithful and byte-exact** — every card is retained on parse; untouched cards
-  (including long-string runs) re-serialize byte-for-byte, and only created or edited
-  cards are re-rendered.
-- **Strict keyword access** — a bare name addresses the sole occurrence of a keyword and
-  errors when it is duplicated; `("NAME", n)` selects the n-th occurrence explicitly.
-- **Full CRUD** — create, read, update, and delete single or multiple keywords; batch
-  mutations are atomic (all or nothing).
-- **Typed reads and writes** — one generic accessor, `get::<T>`, covering strings,
-  numbers, booleans, and date/times; `Literal`/`Fixed`/`Sci` wrappers control number
-  formatting on write.
-- **Long strings** — the `CONTINUE` convention on read and write (with `LONGSTRN`).
-- **Generic, not domain-specific** — an ordered header of `(keyword, value, comment)`
-  cards; no application types in the API.
+- Pure Rust, no C or system libraries. Builds with the MSVC toolchain.
+- Every card is retained on parse; untouched cards (including long-string runs)
+  re-serialize byte-for-byte. Only created or edited cards are re-rendered.
+- Keyword access is strict: a bare name addresses the sole occurrence of a keyword and
+  errors when it is duplicated; `("NAME", n)` selects the n-th occurrence.
+- Create, read, update, and delete single or multiple keywords; batch mutations are
+  atomic (all or nothing).
+- Typed reads and writes: `get::<T>` covers strings, numbers, booleans, and date/times;
+  `Literal`/`Fixed`/`Sci` wrappers control number formatting on write.
+- Long strings use the `CONTINUE` convention on read and write (with `LONGSTRN`).
+- The API is an ordered header of `(keyword, value, comment)` cards; it contains no
+  application types.
 
 ## Usage
 
