@@ -45,6 +45,8 @@ pub fn parse(bytes: &[u8]) -> Result<Header, FitsError> {
                     if next_kw != "CONTINUE" {
                         break;
                     }
+                    // Confirmed continuation: drop the '&' marker before appending the next piece.
+                    content.pop();
                     let next_str = String::from_utf8_lossy(&next).into_owned();
                     let nf = next_str[10..].trim_start();
                     let (piece, c2, cont2) = parse_string_field(nf);
@@ -141,10 +143,8 @@ fn parse_string_field(field: &str) -> (String, Option<String>, bool) {
     }
     let remainder: String = chars[k..].iter().collect();
     let comment = extract_comment(&remainder);
+    // `content` keeps a trailing '&'; the caller drops it only when a CONTINUE card follows.
     let cont = content.ends_with('&');
-    if cont {
-        content.pop();
-    }
     (content, comment, cont)
 }
 
