@@ -1,0 +1,72 @@
+name: release-please
+
+# release-please maintains a release PR from conventional commits on main.
+# Merging that PR creates the git tag + GitHub release, and the publish job
+# ships the crate to crates.io via Trusted Publishing (OIDC) — there is no
+# long-lived registry token anywhere.
+
+on:
+  push:
+    branches: [main]
+
+# No workflow-wide permissions; each job requests only what it needs.
+permissions: {}
+
+jobs:
+  # Maintain the release PR (changelog + version bump) and, on merge, cut the
+  # git tag + GitHub release.
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+    steps:
+      # Authenticate as the sjorsr-release-bot GitHub App rather than the
+      # default GITHUB_TOKEN: a PR opened with GITHUB_TOKEN does not trigger
+      # other workflows, so CI would never run on the release PR. The App
+      # credentials are org-level (RELEASE_APP_CLIENT_ID variable +
+      # RELEASE_APP_PRIVATE_KEY secret).
+      - name: Mint sjorsr-release-bot app token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Publish to crates.io only when a release was just cut. The crates.io
+  # trusted publisher for this crate is pinned to this repository and this
+  # workflow file; the OIDC exchange fails from anywhere else.
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token exchange for Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test before publishing
+        run: cargo test --all-features
+
+      - name: Authenticate to crates.io (Trusted Publishing / OIDC)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
