@@ -1,0 +1,21 @@
+[package]
+name = "fits-header"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+license = "Apache-2.0"
+description = "Dependency-free, std-only FITS header reader/writer: parse every card from a FITS file, CRUD single or multiple header keywords, then serialize back to a valid FITS object."
+repository = "https://github.com/nightwatch-astro/fits-header"
+readme = "README.md"
+keywords = ["fits", "astronomy", "header", "parser", "metadata"]
+categories = ["parser-implementations", "science", "encoding"]
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

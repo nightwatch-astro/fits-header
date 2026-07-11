@@ -1,0 +1,75 @@
+# speckit-gate project overlay — agentic-packages / speckit orchestration policy
+#
+# This file encodes the A2 policy gap identified during speckit-gate integration
+# testing. It is merged into the project's gates.yaml by setup-speckit.sh after
+# `speckit-gate init --defaults` runs, then recompiled and installed.
+#
+# Policy summary (A2):
+#   - /speckit.implement is deprecated; route through agent-assign-execute instead.
+#   - agent-assign-assign -> validate -> execute form a required chain.
+#   - agent-assign-execute and speckit-verify run as sub-agents (spawn_agent: true).
+#   - speckit-verify and speckit-verify-tasks require implementation-phase artifacts.
+#
+# YAML shape matches speckit-gate presets (presets/core.gates.yaml,
+# presets/extensions.example.gates.yaml). Only the `gates:` block is merged
+# (the top-level `config:` block is set by `init --defaults`).
+#
+# NOTE: this file contains only the gates that are NOT already in the core preset
+# or the extension examples. The setup script appends these entries after init so
+# keys do not collide with the defaults written by `speckit-gate init`.
+
+gates:
+
+  # --- deprecated implement gate (A2 policy) ---
+  # /speckit.implement is routed through agent-assign-execute. Mark it deprecated
+  # so speckit-gate emits an upgrade hint pointing users at the correct path.
+  implement:
+    requires: [tasks]
+    produces: []
+    deprecated: true
+    context: >-
+      Deprecated. Route implementation through /speckit.agent-assign-assign then
+      /speckit.agent-assign-validate then /speckit.agent-assign-execute instead.
+
+  # --- agent-assign chain (A2 policy) ---
+  agent-assign-assign:
+    requires: [tasks]
+    produces: [specs/<feat>/agent-assignments.md]
+    context: >-
+      Scan available Claude Code agents and assign them to tasks in tasks.md.
+      Must run before validate and execute.
+
+  agent-assign-validate:
+    requires: [agent-assign-assign]
+    produces: []
+    context: >-
+      Validate that all agent assignments in agent-assignments.md are correct
+      and that the assigned agents exist. Must run before execute.
+
+  agent-assign-execute:
+    requires: [agent-assign-assign, agent-assign-validate]
+    produces: [specs/<feat>/task-<n>.report.md]
+    spawn_agent: true
+    context: >-
+      Execute tasks by spawning the assigned agent for each task in its own
+      context. Replaces the deprecated /speckit.implement. Requires
+      agent-assignments.md (assign) and a passing validate run.
+
+  # --- verify gates (A2 policy: local agent, spawn_agent: true) ---
+  verify:
+    requires: [tasks]
+    produces: [specs/<feat>/verify-report.md]
+    spawn_agent: true
+    context: >-
+      Non-destructive post-implementation verification gate. Validates the
+      implementation against spec.md, plan.md, tasks.md, and constitution.md.
+      Runs as a local speckit-verify agent (spawned as a sub-agent).
+
+  verify-tasks:
+    requires: [tasks]
+    produces: [specs/<feat>/verify-tasks-report.md]
+    spawn_agent: true
+    context: >-
+      Detects phantom completions in a fresh context to avoid confirmation
+      bias. Verifies that tasks marked [X] in tasks.md are backed by real
+      implementation. Runs as a local speckit-verify-tasks agent.

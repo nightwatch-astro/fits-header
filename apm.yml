@@ -1,0 +1,23 @@
+name: fits-header
+version: 1.0.0
+description: APM project for fits-header
+author: Sjors Robroek
+# Which agent platforms to deploy to.
+# Resolution order: --target flag > this field > auto-detect from filesystem.
+# Accepted values: vscode, agents, copilot, claude, cursor, opencode, codex,
+# gemini, antigravity, windsurf, kiro, agent-skills, all
+targets:
+  - claude
+  - codex
+dependencies:
+  apm:
+    - srobroek/agentic-packages/packages/language-rust
+    - srobroek/agentic-packages/packages/lsp-rust
+    - srobroek/agentic-packages/packages/speckit
+    - srobroek/agentic-packages/packages/steering-speckit
+    - srobroek/agentic-packages/packages/hooks-attribution-guard
+    - srobroek/agentic-packages/packages/steering-git-workflow
+    - srobroek/agentic-packages/packages/release-please
+  mcp: []
+includes: auto
+scripts: {}

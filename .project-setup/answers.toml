@@ -1,0 +1,33 @@
+[modules]
+enabled = ["agents-md", "core-identity", "dirs-scaffold", "git-init", "gitignore-generate", "license-write"]
+
+[modules.source]
+enabled = "agent-steered"
+
+
+[module]
+[module.agents-md]
+description = "Dependency-free, std-only FITS header reader/writer: parse all cards from a FITS file, CRUD single or multiple header keywords, and serialize back to a valid FITS object."
+project_name = "fits-header"
+org = "nightwatch-astro"
+
+[module.agents-md.source]
+description = "flag"
+project_name = "flag"
+org = "flag"
+
+[module.core-identity]
+project_name = "fits-header"
+org = "nightwatch-astro"
+description = "Dependency-free, std-only FITS header reader/writer: parse all cards from a FITS file, CRUD single or multiple header keywords, and serialize back to a valid FITS object."
+
+[module.core-identity.source]
+project_name = "flag"
+org = "flag"
+description = "flag"
+
+[module.license-write]
+author = "Sjors Robroek"
+
+[module.license-write.source]
+author = "flag"

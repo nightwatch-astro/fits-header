@@ -1,0 +1,47 @@
+# Pre-commit hygiene + Rust quality gate for fits-header.
+# Install with: pre-commit install -t pre-commit -t pre-push
+minimum_pre_commit_version: "3.5.0"
+
+# Hygiene + Rust checks run at commit time; only the secret scan runs on push.
+default_stages: [pre-commit]
+
+# Never reformat vendored / generated agentic tooling or the SpecKit scaffold —
+# those files are managed by APM / spec-kit, not by this repo's style rules.
+exclude: '^(\.claude/|\.agents/|\.codex/|\.specify/|apm_modules/)'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  # Rust format + lint, run through the project toolchain (rust files only).
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+  # Secret scan on push (defense in depth for a publishable crate).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        stages: [pre-push]

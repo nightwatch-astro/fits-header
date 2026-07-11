@@ -1,0 +1,50 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/hooks-attribution-guard/scripts/attribution-guard.sh",
+            "if": "Bash(git commit *)"
+          }
+        ],
+        "_apm_source": "hooks-attribution-guard"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/release-please/scripts/release-please-guard.sh"
+          }
+        ],
+        "_apm_source": "release-please"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/speckit/scripts/speckit-task-commit-check.sh",
+            "if": "Bash(git commit*)"
+          }
+        ],
+        "_apm_source": "speckit"
+      },
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/speckit/scripts/speckit-task-issue-sync.sh"
+          }
+        ],
+        "_apm_source": "speckit"
+      }
+    ]
+  }
+}
