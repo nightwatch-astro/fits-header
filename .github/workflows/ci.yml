@@ -13,6 +13,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
 
 jobs:
   rust:
@@ -43,4 +44,4 @@ jobs:
         run: cargo test --all-features
 
       - name: Docs
-        run: cargo doc --no-deps
+        run: cargo doc --no-deps --all-features

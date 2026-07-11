@@ -55,6 +55,13 @@ fn demo(bytes: &[u8]) -> Result<(), FitsError> {
   Data larger than `MAX_ZERO_FILL` (1 GiB) returns `FitsError::DataTooLarge` instead of
   allocating.
 
+## Documentation
+
+API documentation is generated from the crate's rustdoc and published at
+[docs.rs/fits-header](https://docs.rs/fits-header). Every public item is documented;
+the examples are compiled and run as part of the test suite. Build the docs locally
+with `cargo doc --no-deps --all-features --open`.
+
 ## Features
 
 - `serde` *(off by default)* — derive `Serialize`/`Deserialize` on `Header`, `Record`,

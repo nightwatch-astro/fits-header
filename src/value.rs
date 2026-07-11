@@ -112,6 +112,15 @@ impl IntoValue for f32 {
 
 /// Write a literal token verbatim (numeric text a vendor supplied, or a value you don't want
 /// reformatted).
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Header, Literal};
+/// let mut h = Header::new();
+/// h.set("BSCALE", Literal("1.000")).unwrap(); // kept as-is, not reformatted
+/// assert_eq!(h.get::<String>("BSCALE").unwrap().as_deref(), Some("1.000"));
+/// ```
 pub struct Literal<S: Into<String>>(pub S);
 
 impl<S: Into<String>> IntoValue for Literal<S> {
@@ -121,6 +130,15 @@ impl<S: Into<String>> IntoValue for Literal<S> {
 }
 
 /// Write a float with a fixed number of decimal places.
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Fixed, Header};
+/// let mut h = Header::new();
+/// h.set("EXPTIME", Fixed(120.0, 2)).unwrap();
+/// assert_eq!(h.get::<String>("EXPTIME").unwrap().as_deref(), Some("120.00"));
+/// ```
 pub struct Fixed(pub f64, pub u8);
 
 impl IntoValue for Fixed {
@@ -130,6 +148,15 @@ impl IntoValue for Fixed {
 }
 
 /// Write a float in scientific notation with `N` significant digits (uppercase `E`).
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Header, Sci};
+/// let mut h = Header::new();
+/// h.set("BZERO", Sci(0.000123, 3)).unwrap();
+/// assert_eq!(h.get::<String>("BZERO").unwrap().as_deref(), Some("1.23E-4"));
+/// ```
 pub struct Sci(pub f64, pub u8);
 
 impl IntoValue for Sci {
@@ -142,6 +169,13 @@ impl IntoValue for Sci {
 // --- number parsing/formatting -------------------------------------------
 
 /// Parse a float, accepting the Fortran `D` exponent (`1.5D3`).
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(fits_header::parse_f64("1.5D3"), Some(1500.0));
+/// assert_eq!(fits_header::parse_f64("120.0"), Some(120.0));
+/// ```
 pub fn parse_f64(s: &str) -> Option<f64> {
     let t = s.trim();
     if t.contains(['D', 'd']) {
@@ -152,6 +186,13 @@ pub fn parse_f64(s: &str) -> Option<f64> {
 }
 
 /// Parse an integer, accepting decimal-form integers (`"20.0"` → `20`).
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(fits_header::parse_i64("20.0"), Some(20));
+/// assert_eq!(fits_header::parse_i64("20.5"), None);
+/// ```
 pub fn parse_i64(s: &str) -> Option<i64> {
     lenient_i128(s).and_then(|v| i64::try_from(v).ok())
 }

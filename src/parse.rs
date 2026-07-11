@@ -10,6 +10,21 @@ use crate::CARD_LEN;
 /// Reads 80-byte cards in order, stops at `END`, and retains every card (including commentary,
 /// `HIERARCH`, and unrecognized cards) so untouched cards serialize verbatim. `CONTINUE` runs are
 /// reassembled into a single logical value.
+///
+/// # Examples
+///
+/// ```
+/// let mut bytes = Vec::new();
+/// for card in ["OBJECT  = 'M31     '", "EXPTIME =                120.0", "END"] {
+///     let mut c = card.as_bytes().to_vec();
+///     c.resize(80, b' ');
+///     bytes.extend(c);
+/// }
+///
+/// let header = fits_header::parse(&bytes).unwrap();
+/// assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
+/// assert_eq!(header.get::<f64>("EXPTIME").unwrap(), Some(120.0));
+/// ```
 pub fn parse(bytes: &[u8]) -> Result<Header, FitsError> {
     let cards: Vec<[u8; CARD_LEN]> = bytes
         .chunks_exact(CARD_LEN)

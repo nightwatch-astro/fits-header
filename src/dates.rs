@@ -3,6 +3,14 @@
 use time::{Date, Month, PrimitiveDateTime, Time};
 
 /// Parse a FITS civil date/time (`YYYY-MM-DD[Thh:mm:ss[.fff]]`), timezone-naive.
+///
+/// # Examples
+///
+/// ```
+/// let dt = fits_header::parse_datetime("2026-07-11T22:15:03").unwrap();
+/// assert_eq!(fits_header::format_datetime(&dt), "2026-07-11T22:15:03");
+/// assert!(fits_header::parse_datetime("2026-07-11").is_some()); // date-only → midnight
+/// ```
 pub fn parse_datetime(s: &str) -> Option<PrimitiveDateTime> {
     let t = s.trim().trim_matches('\'').trim();
     let (date_part, time_part) = match t.split_once('T') {

@@ -5,6 +5,18 @@
 /// A bare name is **strict**: `get`/`set`/`remove` error with
 /// [`FitsError::AmbiguousKeyword`](crate::FitsError::AmbiguousKeyword) if the keyword is
 /// duplicated. The `(name, occurrence)` form targets exactly one record (0-based).
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::Header;
+/// let mut h = Header::new();
+/// h.append("GAIN", 100).unwrap();
+/// h.append("GAIN", 200).unwrap();
+///
+/// assert!(h.get::<i64>("GAIN").is_err()); // ambiguous bare name
+/// assert_eq!(h.get::<i64>(("GAIN", 1)).unwrap(), Some(200)); // explicit occurrence
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Key {
     /// The sole occurrence of a keyword (strict).
