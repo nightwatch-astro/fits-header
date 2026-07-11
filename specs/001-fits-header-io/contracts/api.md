@@ -34,6 +34,8 @@ impl Header {
     // --- CRUD ---
     /// Update the addressed record in place, or append when the unique name is absent.
     pub fn set(&mut self, key: impl Into<Key>, value: impl IntoValue) -> Result<(), FitsError>;
+    /// Like `set` but accepts any ≤8-char printable-ASCII keyword (vendor escape hatch).
+    pub fn set_raw(&mut self, keyword: &str, value: impl IntoValue) -> Result<(), FitsError>;
     /// Always add a record (value card, or commentary card for COMMENT/HISTORY/blank).
     pub fn append(&mut self, name: &str, value: impl IntoValue) -> Result<(), FitsError>;
     /// Attach or replace the addressed record's inline comment.
@@ -72,19 +74,24 @@ impl From<(&str, usize)> for Key;   // ("GAIN", 1)   -> Occurrence
 ## `Record` / `Value`
 
 ```rust
-#[derive(Clone, Debug, PartialEq)]
-pub enum Record {
+#[derive(Clone, Debug)]                 // PartialEq is semantic (compares `kind` only)
+pub struct Record {
+    pub kind: RecordKind,
+    // retained physical card bytes + modified flag, private; a long-string run keeps all its cards
+}
+
+pub enum RecordKind {
     Value { keyword: String, value: Value, comment: Option<String> },
-    Commentary { keyword: String, text: String },
-    Opaque,          // preserved raw
-    Continuation,    // CONTINUE card of the preceding value
+    Commentary { keyword: String, text: String },   // COMMENT / HISTORY / blank
+    Opaque { text: String },                          // HIERARCH / unrecognized
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value { Str(String), Literal(String) }
 ```
 
-(`Record` also carries retained raw bytes + a modified flag internally; those are not part of `PartialEq`.)
+A `CONTINUE` run is one `Value` record that retains the bytes of all its physical cards; there is no
+separate continuation variant. `Record` equality ignores the retained bytes.
 
 ## Conversion traits & wrappers
 
@@ -111,14 +118,17 @@ impl Default for StructuralHints { /* 1×1 8-bit image */ }
 ## Helper functions
 
 ```rust
-pub fn sexagesimal_ra_to_deg(s: &str) -> Option<f64>;    // "10 00 00" -> 150.0
-pub fn sexagesimal_dec_to_deg(s: &str) -> Option<f64>;   // "-00 30 00" -> -0.5
-pub fn deg_to_sexagesimal_ra(deg: f64) -> String;
-pub fn deg_to_sexagesimal_dec(deg: f64) -> String;
+// always available
 pub fn parse_f64(s: &str) -> Option<f64>;
 pub fn parse_i64(s: &str) -> Option<i64>;                // "20.0" -> 20
 pub fn parse_datetime(s: &str) -> Option<time::PrimitiveDateTime>;
 pub fn format_datetime(dt: &time::PrimitiveDateTime) -> String;
+
+// #[cfg(feature = "coords")]
+pub fn sexagesimal_ra_to_deg(s: &str) -> Option<f64>;    // "10 00 00" -> 150.0
+pub fn sexagesimal_dec_to_deg(s: &str) -> Option<f64>;   // "-00 30 00" -> -0.5
+pub fn deg_to_sexagesimal_ra(deg: f64) -> String;
+pub fn deg_to_sexagesimal_dec(deg: f64) -> String;
 pub fn mjd_to_datetime(mjd: f64) -> time::PrimitiveDateTime;
 pub fn datetime_to_mjd(dt: &time::PrimitiveDateTime) -> f64;
 ```
@@ -126,7 +136,8 @@ pub fn datetime_to_mjd(dt: &time::PrimitiveDateTime) -> f64;
 ## Error
 
 ```rust
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum FitsError {
     #[error("keyword '{keyword}' occurs {count} times; select an occurrence")]
     AmbiguousKeyword { keyword: String, count: usize },
@@ -134,6 +145,8 @@ pub enum FitsError {
     KeywordTooLong { keyword: String },
     #[error("keyword '{keyword}' contains characters outside A-Z 0-9 - _")]
     InvalidKeyword { keyword: String },
+    #[error("keyword '{keyword}' has no occurrence {occurrence} (found {count})")]
+    OccurrenceOutOfRange { keyword: String, occurrence: usize, count: usize },
 }
 ```
 
@@ -141,3 +154,4 @@ pub enum FitsError {
 
 - `serde` *(off by default)* — derives `Serialize`/`Deserialize` on `Header`, `Record`, `Value`,
   `StructuralHints`.
+- `coords` *(off by default)* — sexagesimal RA/Dec and MJD↔calendar helpers.

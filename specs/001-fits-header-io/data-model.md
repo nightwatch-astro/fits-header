@@ -18,20 +18,21 @@ A value card's payload.
 
 ## `Record`
 
-One 80-byte header line. Every variant carries `raw: Option<Box<[u8; 80]>>` (original bytes, `Some` when
-parsed and unmodified; `None` once created or edited) — untouched records serialize from `raw`.
+A `Record` is `{ kind: RecordKind, raw }`. `raw: Option<Vec<[u8; 80]>>` holds the original bytes of the
+record's physical card(s) — `Some` when parsed and unmodified (a long-string run holds more than one
+card), `None` once created or edited. Untouched records serialize from `raw`. `RecordKind`:
 
 | Variant | Fields | Notes |
 |---|---|---|
 | `Value` | `keyword: String`, `value: Value`, `comment: Option<String>` | addressable value card |
 | `Commentary` | `keyword: String` (`COMMENT`/`HISTORY`/blank), `text: String` | repeatable free-text card |
-| `Opaque` | (raw only) | `HIERARCH`/unrecognized; preserved, not addressable |
-| `Continuation` | (raw only) | a `CONTINUE` card belonging to the preceding `Value` run |
+| `Opaque` | `text: String` | `HIERARCH`/unrecognized; preserved, not addressable |
 
 Rules:
 - `keyword` is 1–8 chars from `A–Z 0–9 - _`, stored trimmed.
 - On read, `''`→`'` is unescaped and trailing spaces trimmed for `Str`.
-- A `Value` plus its trailing `Continuation` records form one logical value.
+- A long value plus its `CONTINUE` cards is one `Value` record whose `raw` holds all those cards;
+  there is no separate continuation variant.
 
 ## `Header`
 
@@ -86,5 +87,8 @@ Used only when synthesizing missing structural cards on write.
 | `AmbiguousKeyword { keyword, count }` | bare-name `get`/`set`/`remove` on a duplicated keyword | select an occurrence |
 | `KeywordTooLong { keyword }` | validated mutation | keyword exceeds 8 characters |
 | `InvalidKeyword { keyword }` | validated mutation | keyword has bytes outside `A–Z 0–9 - _` |
+| `OccurrenceOutOfRange { keyword, occurrence, count }` | `set` on a non-existent occurrence | pick an existing occurrence |
 
 `parse` returns `Result<Header, FitsError>` (lenient); `to_header_bytes`/`to_bytes` are infallible.
+`FromCard`/`IntoValue` numeric impls cover `i8`–`i64`/`u8`–`u64`/`f32`/`f64`; `set_raw` is the
+vendor-keyword escape hatch. Sexagesimal and MJD helpers are behind the `coords` feature.
