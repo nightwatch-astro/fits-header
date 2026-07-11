@@ -1,4 +1,4 @@
-//! FITS date/time interpretation, and (behind the `coords` feature) MJD conversion.
+//! FITS date/time interpretation.
 
 use time::{Date, Month, PrimitiveDateTime, Time};
 
@@ -86,27 +86,6 @@ pub fn format_datetime(dt: &PrimitiveDateTime) -> String {
     }
 }
 
-/// Epoch for the Modified Julian Date: 1858-11-17T00:00:00.
-#[cfg(feature = "coords")]
-fn mjd_epoch() -> PrimitiveDateTime {
-    PrimitiveDateTime::new(
-        Date::from_calendar_date(1858, Month::November, 17).expect("valid MJD epoch"),
-        Time::MIDNIGHT,
-    )
-}
-
-/// Convert a Modified Julian Date to a calendar date/time.
-#[cfg(feature = "coords")]
-pub fn mjd_to_datetime(mjd: f64) -> PrimitiveDateTime {
-    mjd_epoch() + time::Duration::seconds_f64(mjd * 86_400.0)
-}
-
-/// Convert a calendar date/time to a Modified Julian Date.
-#[cfg(feature = "coords")]
-pub fn datetime_to_mjd(dt: &PrimitiveDateTime) -> f64 {
-    (*dt - mjd_epoch()).as_seconds_f64() / 86_400.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,12 +141,5 @@ mod tests {
         assert_eq!(format_datetime(&dt), "2026-07-11T00:00:00.1");
         let dt = parse_datetime("2026-07-11T00:00:00.000").unwrap();
         assert_eq!(format_datetime(&dt), "2026-07-11T00:00:00");
-    }
-
-    #[cfg(feature = "coords")]
-    #[test]
-    fn mjd_epoch_is_zero() {
-        assert_eq!(datetime_to_mjd(&mjd_epoch()), 0.0);
-        assert_eq!(mjd_to_datetime(0.0), mjd_epoch());
     }
 }

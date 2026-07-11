@@ -5,7 +5,7 @@ A pure-Rust FITS header reader/writer: parse all cards from a FITS file, CRUD si
 ## Agent Guidance
 
 - **Keep dependencies minimal and pure-Rust.** The crate is MSVC-safe and publishable:
-  **no C or system libraries**. Approved deps: `time` (dates/MJD), `thiserror` (errors),
+  **no C or system libraries**. Approved deps: `time` (dates), `thiserror` (errors),
   `serde` (optional, off-by-default feature), `proptest` (dev). Add a new dep only when it
   pays for itself and stays pure-Rust; prefer the standard library otherwise.
 - **No app domain types.** `fits-header` exposes a generic `(keyword, value, comment)`

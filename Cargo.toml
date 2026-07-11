@@ -17,9 +17,6 @@ include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
 # Off by default. Derives Serialize/Deserialize on the public types so a header can
 # be (de)serialized to JSON/etc. Zero cost for consumers who don't opt in.
 serde = ["dep:serde", "time/serde"]
-# Off by default. Astronomy coordinate/epoch helpers (sexagesimal RA/Dec, MJD <-> date).
-# The generic core stays free of domain math without it.
-coords = []
 
 [dependencies]
 # Pure-Rust, MSVC-safe deps only (no C/system libraries).
@@ -35,7 +32,7 @@ serde_json = "1.0.150"
 time = "0.3"
 
 [package.metadata.docs.rs]
-# docs.rs documents the serde and coords items too.
+# docs.rs documents the serde items too.
 all-features = true
 
 [lib]

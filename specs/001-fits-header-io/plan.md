@@ -11,7 +11,7 @@ unit. Parsing keeps every card in order and retains its original bytes, so seria
 untouched cards byte-for-byte and re-renders only what the caller changed. Access is strict and
 keyword-oriented through a unified key (bare name, or `(name, occurrence)`); a generic `get::<T>()`
 reads values, type-directed `set`/`append` write them, and batch edits are atomic. Long strings use the
-`CONTINUE` convention on both read and write. Coordinate, numeric, and date/MJD helpers sit on top. The
+`CONTINUE` convention on both read and write. Numeric and date helpers sit on top. The
 crate is pure-Rust and MSVC-safe.
 
 ## Technical Context
@@ -74,14 +74,13 @@ src/
 ├── header.rs   # Header: ordered records, get/set/remove/append/get_all/count, atomic batch
 ├── parse.rs    # parse(&[u8]) -> Result<Header>: byte-exact retention, CONTINUE reassembly, commentary
 ├── write.rs    # to_header_bytes / to_bytes, StructuralHints, card formatting, CONTINUE+LONGSTRN
-├── coords.rs   # sexagesimal RA/Dec parse + format
-└── dates.rs    # ISO-8601 parse/format + MJD <-> calendar (via time)
+└── dates.rs    # ISO-8601 parse/format (via time)
 
 tests/
 ├── read.rs         # US1 — faithful read, CONTINUE reassembly
 ├── crud.rs         # US2 — strict Key CRUD, occurrence selection, atomic batch
 ├── write.rs        # US3 — byte-exact write-back, structural synth, CONTINUE emission
-├── helpers.rs      # US4 — sexagesimal / numeric / date / MJD
+├── helpers.rs      # US4 — numeric / date
 └── roundtrip.rs    # proptest: byte-exact untouched + semantic equality, 80-byte cards, 2880 padding
 ```
 

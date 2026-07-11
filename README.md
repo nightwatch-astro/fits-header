@@ -66,14 +66,12 @@ with `cargo doc --no-deps --all-features --open`.
 
 - `serde` *(off by default)* — derive `Serialize`/`Deserialize` on `Header`, `Record`,
   `Value`, and `StructuralHints`.
-- `coords` *(off by default)* — astronomy helpers: sexagesimal RA/Dec parsing and
-  formatting, MJD ↔ calendar conversion. No extra dependencies.
 
 ## Development
 
 ```sh
 just verify                  # fmt-check + clippy (-D warnings) + tests
-cargo test --all-features    # includes the serde and coords suites
+cargo test --all-features    # includes the serde suite
 just doc
 ```
 

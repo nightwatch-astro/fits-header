@@ -124,14 +124,6 @@ pub fn parse_f64(s: &str) -> Option<f64>;
 pub fn parse_i64(s: &str) -> Option<i64>;                // "20.0" -> 20
 pub fn parse_datetime(s: &str) -> Option<time::PrimitiveDateTime>;
 pub fn format_datetime(dt: &time::PrimitiveDateTime) -> String;
-
-// #[cfg(feature = "coords")]
-pub fn sexagesimal_ra_to_deg(s: &str) -> Option<f64>;    // "10 00 00" -> 150.0
-pub fn sexagesimal_dec_to_deg(s: &str) -> Option<f64>;   // "-00 30 00" -> -0.5
-pub fn deg_to_sexagesimal_ra(deg: f64) -> String;
-pub fn deg_to_sexagesimal_dec(deg: f64) -> String;
-pub fn mjd_to_datetime(mjd: f64) -> time::PrimitiveDateTime;
-pub fn datetime_to_mjd(dt: &time::PrimitiveDateTime) -> f64;
 ```
 
 ## Error
@@ -165,4 +157,3 @@ pub const MAX_ZERO_FILL: u64 = 1 << 30; // largest data segment to_bytes will ze
 
 - `serde` *(off by default)* — derives `Serialize`/`Deserialize` on `Header`, `Record`, `Value`,
   `StructuralHints`.
-- `coords` *(off by default)* — sexagesimal RA/Dec and MJD↔calendar helpers.

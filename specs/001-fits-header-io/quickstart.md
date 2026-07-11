@@ -50,11 +50,8 @@ Each maps to a user story in [spec.md](./spec.md); they are realized as tests un
 
 ### US4 — helpers
 
-- `sexagesimal_ra_to_deg("10 00 00") == Some(150.0)`; `sexagesimal_dec_to_deg("-00 30 00") == Some(-0.5)`.
-- `deg_to_sexagesimal_ra(150.0)` re-parses to `150.0`.
 - `parse_i64("20.0") == Some(20)`.
 - `parse_datetime("2026-07-11T22:15:03")` succeeds; `format_datetime` yields the same string.
-- `mjd_to_datetime(mjd)` agrees with the matching `DATE-OBS`.
 
 ### Round-trip property (core contract)
 
