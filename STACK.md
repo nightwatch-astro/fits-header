@@ -10,12 +10,21 @@ Recorded during project setup. This crate is intentionally minimal.
 
 ## Dependencies
 
-- **None.** `fits-header` is `std`-only by design and must stay that way:
-  - Publishable and trivially auditable (no supply-chain surface).
-  - **MSVC-safe** — no C/system libraries, builds on Windows without extra toolchains.
-  - Verified on Linux, Windows, and macOS in CI.
-- Consequence: error handling, parsing, and formatting are hand-rolled rather than
-  pulling `thiserror`/`anyhow`/`nom`. This is a deliberate constraint, not an omission.
+Policy (revised 2026-07-11): the crate is **not** zero-dependency, but stays **pure Rust,
+MSVC-safe, and publishable** — no C or system libraries. Versions are aligned with
+`nightwatch-astro/alm`, the repo this crate merges back into.
+
+- **`time` 0.3** *(runtime)* — parse/format FITS date keywords (`DATE-OBS`, `DATE-LOC`,
+  `DATE-END`) and convert between Modified Julian Date (`MJD-OBS`/`MJD-AVG`) and calendar dates.
+- **`thiserror` 2** *(runtime)* — typed error enum for parse/serialize failures.
+- **`serde` 1** *(optional, off-by-default `serde` feature)* — `Serialize`/`Deserialize` on
+  `Header`/`Card`/`StructuralHints` for JSON and other formats. Not a default so consumers who
+  don't need it pay nothing.
+- **`proptest` 1** *(dev-only)* — property-based testing of the parse↔`to_bytes` round-trip.
+
+Deliberately **not** added: `chrono` (superseded by `time`, which alm already uses),
+`hifitime` (full astronomical time scales — overkill for header I/O), `byteorder`/`lexical`
+(unneeded for text cards), and any crate pulling C/system libraries.
 
 ## Licensing
 
@@ -27,7 +36,7 @@ Recorded during project setup. This crate is intentionally minimal.
 ## Quality gates
 
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo doc` — locally
-  via `just verify` and in GitHub Actions CI.
+  via `just verify` and in GitHub Actions CI (Linux, Windows, macOS).
 - `pre-commit`: hygiene hooks + `cargo fmt`/`cargo clippy` + `gitleaks` secret scan on push.
 
 ## Agentic tooling

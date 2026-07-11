@@ -1,3 +1,3 @@
-# Keep this crate dependency-free and std-only. No project-specific lint
-# thresholds are needed yet; defaults apply. Add entries here if the parser
-# grows functions that trip clippy's argument/complexity thresholds.
+# No project-specific lint thresholds are needed yet; clippy defaults apply. Add
+# entries here if the parser grows functions that trip clippy's argument/complexity
+# thresholds. Dependencies must stay pure-Rust and MSVC-safe (no C/system libs).

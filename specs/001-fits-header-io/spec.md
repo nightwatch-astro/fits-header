@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Generic, dependency-free (std-only), publishable FITS header read/write library for the `fits-header` crate — extract all header cards from a FITS file, CRUD single or multiple header keywords, and serialize the header back into a valid FITS object, with coordinate/number helpers and a round-trip guarantee."
+**Input**: User description: "Generic, pure-Rust (MSVC-safe, minimal deps) publishable FITS header read/write library for the `fits-header` crate — extract all header cards from a FITS file, CRUD single or multiple header keywords, serialize the header back into a valid FITS object, with coordinate/date/number helpers and a round-trip guarantee."
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -99,25 +99,33 @@ multiple of 2880) and that re-parsing it reproduces the original cards.
 
 ---
 
-### User Story 4 - Convert coordinate and numeric header values (Priority: P3)
+### User Story 4 - Interpret and format coordinate, numeric, and date values (Priority: P3)
 
-A developer needs to interpret common FITS value encodings: sexagesimal right ascension and
-declination strings, and numeric strings that use a decimal form for integer quantities.
+A developer needs to interpret common FITS value encodings and convert them both ways:
+sexagesimal right ascension / declination (read *and* write), numeric strings that use a
+decimal form for integer quantities, ISO-8601 date/time keywords, and Modified Julian Dates.
 
 **Why this priority**: A convenience layer on top of the header. Useful but not required to
-read, edit, or write headers; it can ship after the core.
+read, edit, or write raw headers; it can ship after the core.
 
-**Independent Test**: Call the helper functions with representative inputs and assert the
-converted numeric results, including sign handling at the zero boundary.
+**Independent Test**: Call the helper functions (and the datetime-typed read) with
+representative inputs and assert the converted results, including sign handling at the zero
+boundary and round-trip between sexagesimal strings and degrees.
 
 **Acceptance Scenarios**:
 
-1. **Given** an RA string `10 00 00`, **When** converted, **Then** the result is `150.0`
-   degrees (hours × 15).
+1. **Given** an RA string `10 00 00` (or `10:00:00`, or with fractional seconds), **When**
+   converted, **Then** the result is `150.0` degrees (hours × 15).
 2. **Given** a Dec string `-00 30 00`, **When** converted, **Then** the result is `-0.5`
    degrees — the negative sign is preserved even though the degrees field is `0`.
-3. **Given** a numeric string `20.0` where an integer is expected, **When** parsed as an
+3. **Given** the degree value `150.0`, **When** formatted as sexagesimal RA, **Then** the
+   result is a string that parses back to `150.0` (value-level round-trip).
+4. **Given** a numeric string `20.0` where an integer is expected, **When** parsed as an
    integer, **Then** the result is `20`.
+5. **Given** a card `DATE-OBS= '2026-07-11T22:15:03'`, **When** read as a datetime, **Then**
+   the caller receives a parsed date/time value; formatting it back yields the same string.
+6. **Given** `MJD-OBS = 60867.0` and its matching `DATE-OBS`, **When** the MJD is converted
+   to a calendar date, **Then** it agrees with `DATE-OBS` (and the inverse conversion holds).
 
 ---
 
@@ -135,8 +143,11 @@ converted numeric results, including sign handling at the zero boundary.
 - **Duplicate keywords in a header**: reads and single-keyword updates act on the first
   occurrence (first-seen wins); order is otherwise preserved.
 - **No `END` card present**: parsing consumes the available cards and stops at end of input.
-- **Value present but not numeric when a numeric getter is used**: the typed getter reports
-  absence rather than a wrong number.
+- **Typed read of a value that does not match the requested type** (e.g. non-numeric text via a
+  numeric read, or an unparseable `DATE-OBS`): the typed read reports absence rather than a wrong
+  value; it never panics.
+- **Sexagesimal with mixed separators / fractional seconds** (`10:00:00.5` vs `10 00 00.5`):
+  both are accepted.
 
 ## Requirements *(mandatory)*
 
@@ -161,9 +172,12 @@ converted numeric results, including sign handling at the zero boundary.
 - **FR-007**: The library MUST expose a header data structure that is an ordered sequence of cards
   `{ keyword, value, comment? }`, allowing callers to read the cards out, mutate them, and put
   them back for serialization.
-- **FR-008**: The library MUST provide typed reads for a keyword as a string, a 64-bit float, a
-  64-bit signed integer, and a 32-bit unsigned integer, returning absence when the keyword is
-  missing or the value cannot be interpreted as the requested type.
+- **FR-008**: The library MUST provide a single generic typed read, `get::<T>(keyword)`, that
+  interprets a card's value as the requested type via an extensible conversion trait, supporting at
+  least text, 64-bit float, 64-bit signed integer, 32-bit unsigned integer, boolean (FITS `T`/`F`),
+  and a date/time type; it MUST return absence when the keyword is missing or the value cannot be
+  interpreted as the requested type. Named convenience wrappers (`get_str`, `get_f64`, `get_i64`,
+  `get_u32`, `get_bool`) MUST delegate to it.
 - **FR-009**: The library MUST allow creating/inserting a card for an arbitrary keyword (an escape
   hatch for vendor-specific keys), setting its value and optional comment.
 - **FR-010**: The library MUST allow updating the value (and comment) of an existing keyword, both
@@ -186,34 +200,51 @@ converted numeric results, including sign handling at the zero boundary.
 - **FR-015**: The library MUST append an `END` card, pad the header to a whole multiple of 2880
   bytes, and follow it with a minimal data block so the result is a valid FITS object.
 
-**Coordinate & numeric helpers**
+**Coordinate, numeric & date helpers**
 
-- **FR-016**: The library MUST provide a helper that converts a sexagesimal right-ascension string
-  (`H M S`) to degrees by multiplying the hour value by 15.
-- **FR-017**: The library MUST provide a helper that converts a sexagesimal declination string
-  (`±D M S`) to degrees, preserving the sign even when the degrees field is `0`.
-- **FR-018**: The library MUST provide lenient numeric parsing that accepts a decimal-form string
+- **FR-016**: The library MUST convert a sexagesimal right-ascension string to degrees (hours × 15),
+  accepting both space- and colon-separated forms and fractional seconds.
+- **FR-017**: The library MUST convert a sexagesimal declination string to degrees, accepting both
+  space- and colon-separated forms and fractional seconds, and preserving the sign even when the
+  degrees field is `0`.
+- **FR-018**: The library MUST format a degree value back into a sexagesimal right-ascension and a
+  sexagesimal declination string, such that the formatted string parses back to the original degrees
+  (value-level round-trip within a documented precision).
+- **FR-019**: The library MUST provide lenient numeric parsing that accepts a decimal-form string
   (e.g. `20.0`) where an integer is expected and yields the integer value (`20`).
+- **FR-020**: The library MUST parse FITS date keywords (`DATE-OBS`, `DATE-LOC`, `DATE-END`, in
+  ISO-8601 `YYYY-MM-DDThh:mm:ss[.fff]` form) into a date/time value and format such a value back to
+  the same string.
+- **FR-021**: The library MUST convert between a Modified Julian Date (`MJD-OBS`, `MJD-AVG`) and a
+  calendar date/time.
 
 **Non-functional constraints**
 
-- **FR-019**: The library MUST have zero third-party dependencies and use only the standard library.
-- **FR-020**: The library MUST guarantee round-trip fidelity: re-parsing a serialized header
+- **FR-022**: The library MUST use only pure-Rust, MSVC-safe dependencies (no C or system
+  libraries) and MUST remain publishable to crates.io. The runtime dependency set is limited to a
+  date/time library and an error-handling library; an optional off-by-default `serde` capability may
+  add derive support.
+- **FR-023**: The library MUST guarantee round-trip fidelity: re-parsing a serialized header
   reproduces the same keyword/value/comment cards for representative headers, every emitted card is
   exactly 80 bytes, the serialized header is padded to a 2880-byte multiple, and string, numeric,
-  and sexagesimal values survive the round-trip.
-- **FR-021**: The library MUST NOT contain application-specific domain types; it exposes only a
+  sexagesimal, and date values survive the round-trip.
+- **FR-024**: The library MUST NOT contain application-specific domain types; it exposes only a
   generic header. Any field↔keyword mapping to domain models is the responsibility of a downstream
   adapter.
+- **FR-025**: The library MUST offer `Serialize`/`Deserialize` for its public data types behind an
+  optional, disabled-by-default `serde` feature, so consumers who do not need it incur no cost.
 
 ### Key Entities *(include if feature involves data)*
 
 - **Header**: An ordered collection of cards representing one FITS header unit. Supports reading
-  cards out, typed lookups, CRUD over keywords, and serialization back to bytes.
+  cards out, a generic typed read (`get::<T>`), CRUD over keywords, and serialization back to bytes.
 - **Card**: A single header entry — a keyword (≤8-character standard field), a value (as text),
   and an optional inline comment.
 - **Structural Hints**: Caller-supplied description of the FITS object's structure used only when
   writing (image dimensions and bit depth), defaulting to a 1×1 8-bit image.
+- **Value conversion trait**: The extension point behind `get::<T>()` that turns a card's text into
+  a requested Rust type (text, numbers, boolean, date/time). `Header`, `Card`, and `Structural
+  Hints` gain `Serialize`/`Deserialize` when the `serde` feature is enabled.
 
 ## Success Criteria *(mandatory)*
 
@@ -222,16 +253,19 @@ converted numeric results, including sign handling at the zero boundary.
 - **SC-001**: Given a representative FITS file, 100% of the header cards preceding `END` (excluding
   ignored `HIERARCH`/`COMMENT`/`HISTORY`) are extracted with their correct keyword, value, and comment.
 - **SC-002**: For representative headers, serializing a header and re-parsing the result yields an
-  identical ordered set of keyword/value/comment cards (round-trip equality).
+  identical ordered set of keyword/value/comment cards (round-trip equality), verified by
+  property-based tests over generated headers.
 - **SC-003**: For any serialized header, every card is exactly 80 bytes and the total serialized
   length is a whole multiple of 2880 bytes.
 - **SC-004**: Creating, updating, and deleting keywords — exercised for both a single keyword and a
   batch of several — produces the expected header state in 100% of the defined CRUD scenarios.
 - **SC-005**: The coordinate/numeric helpers produce correct results on the boundary cases:
-  RA `10 00 00` → `150.0`, Dec `-00 30 00` → `-0.5` (sign preserved at 0°), and integer parse of
-  `20.0` → `20`.
-- **SC-006**: The library builds and passes its test suite with zero third-party dependencies on
-  Linux, Windows, and macOS.
+  RA `10 00 00` → `150.0`, Dec `-00 30 00` → `-0.5` (sign preserved at 0°), integer parse of
+  `20.0` → `20`, and formatting `150.0` back to a sexagesimal RA that re-parses to `150.0`.
+- **SC-006**: FITS date keywords round-trip (`DATE-OBS` string → date/time → identical string), and
+  an `MJD-OBS` value converts to a calendar date that agrees with its matching `DATE-OBS`.
+- **SC-007**: The library builds and passes its test suite using only pure-Rust dependencies (no C
+  dependencies) on Linux, Windows, and macOS, with default features and with the `serde` feature enabled.
 
 ## Assumptions
 
@@ -245,7 +279,12 @@ converted numeric results, including sign handling at the zero boundary.
   malformed cards are skipped/ignored rather than causing the whole parse to fail.
 - **Duplicate keywords**: reads and single-keyword updates operate on the first occurrence;
   bulk operations address distinct keywords.
-- **Values are held as text** and interpreted on demand by the typed getters and helpers.
+- **Values are held as text** and interpreted on demand by the generic typed read and helpers.
+- **Dependency policy**: the crate is not zero-dependency but stays pure-Rust and MSVC-safe.
+  Date/time is provided by the `time` crate (aligned with alm), errors by `thiserror`, optional
+  serialization by `serde`, and property testing by `proptest` (dev-only).
+- **Date/time semantics**: FITS date keywords are treated as timezone-naive civil date/times (UTC
+  implied); leap seconds and non-UTC time scales (TAI/TT) are not modeled.
 - **License/packaging**: the crate is already scaffolded (Apache-2.0, publishable). The project
   constitution is currently the unratified template, so no additional governance constraints apply
   beyond those stated here.
@@ -257,4 +296,6 @@ converted numeric results, including sign handling at the zero boundary.
 - **Multi-extension HDU** traversal (headers of extension units beyond the primary).
 - Any **application-specific field↔keyword mapping** (e.g. mapping `EXPTIME` → a domain
   `exposure` field); that belongs to a downstream adapter such as alm's `crates/metadata/fits`.
+- Full **astronomical time scales** (TAI/TT/leap-second-precise epochs); only civil ISO-8601 and
+  MJD↔calendar conversion are in scope.
 - File-system access, compression, checksum verification, and network I/O.

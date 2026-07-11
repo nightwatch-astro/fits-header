@@ -4,11 +4,26 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.74"
 license = "Apache-2.0"
-description = "Dependency-free, std-only FITS header reader/writer: parse every card from a FITS file, CRUD single or multiple header keywords, then serialize back to a valid FITS object."
+description = "Pure-Rust, MSVC-safe FITS header reader/writer: parse every card from a FITS file, CRUD single or multiple header keywords, then serialize back to a valid FITS object."
 repository = "https://github.com/nightwatch-astro/fits-header"
 readme = "README.md"
 keywords = ["fits", "astronomy", "header", "parser", "metadata"]
 categories = ["parser-implementations", "science", "encoding"]
+
+[features]
+# Off by default. Derives Serialize/Deserialize on Header/Card/StructuralHints so
+# a header can be (de)serialized to JSON/etc. Zero cost for consumers who don't opt in.
+serde = ["dep:serde", "time/serde"]
+
+[dependencies]
+# Pure-Rust, MSVC-safe deps only (no C/system libraries). Aligned with nightwatch-astro/alm.
+time = { version = "0.3", features = ["parsing", "formatting"] }
+thiserror = "2"
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+# Property-based round-trip testing of the parse/to_bytes contract.
+proptest = "1"
 
 [lib]
 path = "src/lib.rs"

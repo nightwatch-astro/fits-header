@@ -1,6 +1,6 @@
 //! # fits-header
 //!
-//! A dependency-free, `std`-only library for reading and writing the header of a
+//! A pure-Rust, MSVC-safe library for reading and writing the header of a
 //! [FITS](https://fits.gsfc.nasa.gov/fits_standard.html) file.
 //!
 //! The crate is deliberately free of application domain types: it exposes a
@@ -16,13 +16,16 @@
 //!
 //! ## Design goals
 //!
-//! - **std-only, no dependencies** — publishable and MSVC-safe.
+//! - **Pure Rust, MSVC-safe** — minimal deps (`time`, `thiserror`), no C libraries, publishable.
 //! - **Round-trippable** — `parse(header.to_bytes()) == header` for representative headers.
 //! - **Escape hatch** — arbitrary keywords can be written for vendor quirks.
 #![forbid(unsafe_code)]
 
 // Implementation to follow:
-//   - `struct Header` (ordered Vec of cards) with typed getters/setters.
+//   - `struct Header` (ordered Vec of cards) with a generic `get::<T>()` accessor
+//     (String/f64/i64/u32/bool/datetime via a `FromCard` trait) + named wrappers,
+//     plus setters and single/multi CRUD.
 //   - `parse(&[u8]) -> Result<Header>` over 2880-byte blocks / 80-byte cards.
 //   - `Header::to_bytes(&StructuralHints) -> Vec<u8>`.
-//   - sexagesimal + numeric parsing helpers.
+//   - sexagesimal parse + format, numeric parsing, and MJD <-> date helpers (via `time`).
+//   - optional `serde` feature: Serialize/Deserialize on Header/Card/StructuralHints.
