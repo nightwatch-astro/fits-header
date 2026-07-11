@@ -14,6 +14,7 @@ Pure-Rust, MSVC-safe only — no C or system libraries.
 - **`thiserror`** — error type for parse/serialize failures.
 - **`serde`** *(optional, `serde` feature, off by default)* — `Serialize`/`Deserialize` on the public types.
 - **`proptest`** *(dev)* — property tests for the parse ↔ `to_bytes` round-trip.
+- **`serde_json`** *(dev)* — JSON round-trip tests for the `serde` feature.
 
 ## Licensing
 

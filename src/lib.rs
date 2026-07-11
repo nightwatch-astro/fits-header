@@ -66,3 +66,8 @@ pub use crate::coords::{
 };
 #[cfg(feature = "coords")]
 pub use crate::dates::{datetime_to_mjd, mjd_to_datetime};
+
+/// Compiles the README's code blocks as doctests so the documented API cannot drift.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
