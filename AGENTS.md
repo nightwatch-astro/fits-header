@@ -1,12 +1,13 @@
 # fits-header
 
-Dependency-free, std-only FITS header reader/writer: parse all cards from a FITS file, CRUD single or multiple header keywords, and serialize back to a valid FITS object.
+A pure-Rust FITS header reader/writer: parse all cards from a FITS file, CRUD single or multiple header keywords, and serialize back to a valid FITS object.
 
 ## Agent Guidance
 
-- **Keep it dependency-free.** This crate is `std`-only and MSVC-safe. Do not add
-  any crate dependency (no `thiserror`/`anyhow`/`nom`/C bindings) — it must stay
-  publishable and trivially auditable. If you reach for a dep, hand-roll it instead.
+- **Keep dependencies minimal and pure-Rust.** The crate is MSVC-safe and publishable:
+  **no C or system libraries**. Approved deps: `time` (dates/MJD), `thiserror` (errors),
+  `serde` (optional, off-by-default feature), `proptest` (dev). Add a new dep only when it
+  pays for itself and stays pure-Rust; prefer the standard library otherwise.
 - **No app domain types.** `fits-header` exposes a generic `(keyword, value, comment)`
   header only. Application-specific mapping (e.g. `RawFileMetadata`) belongs in the
   consuming adapter, not here.
@@ -33,19 +34,21 @@ Dependency-free, std-only FITS header reader/writer: parse all cards from a FITS
 <!-- BEGIN ps:architecture -->
 Single library crate. The public surface lives in `src/lib.rs`:
 
-- `Header` — an ordered `Vec` of cards `{ keyword, value, comment }` with typed
-  getters (`get_str`/`get_f64`/`get_i64`/`get_u32`) and a setter/builder so
-  arbitrary keywords can be written (vendor escape hatch). Supports CRUD over
-  single or multiple keywords.
+- `Header` — an ordered `Vec` of cards `{ keyword, value, comment }` with a generic
+  `get::<T>(keyword)` accessor over a `FromCard` trait (`String`/`f64`/`i64`/`u32`/`bool`
+  and a `time` datetime), plus named wrappers (`get_str`/`get_f64`/…) and a setter/builder
+  so arbitrary keywords can be written (vendor escape hatch). Supports CRUD over single or
+  multiple keywords.
 - `parse(&[u8]) -> Result<Header>` — reads 2880-byte blocks / 80-byte cards, stops
   at `END`, ignores `HIERARCH`/`COMMENT`/`HISTORY`, unescapes single-quoted strings.
 - `Header::to_bytes(&StructuralHints) -> Vec<u8>` — serializes cards back to a valid
   FITS object (structural `SIMPLE`/`BITPIX`/`NAXIS*` cards, `END`, 2880 padding,
   minimal data block).
-- Helpers: `sexagesimal_ra_to_deg`, `sexagesimal_dec_to_deg`, `parse_f64`, `parse_i64`.
+- Helpers: sexagesimal parse (`sexagesimal_ra_to_deg`, `sexagesimal_dec_to_deg`) and
+  format (`deg_to_sexagesimal_ra`/`_dec`), lenient numeric parsing, and MJD <-> calendar
+  date conversion (via `time`). An optional `serde` feature adds Serialize/Deserialize.
 
-The parser/writer implementation is follow-up work; this repo is the extraction
-scaffold (see the SpecKit spec under `specs/`).
+See the specification under `specs/` for the detailed requirements.
 <!-- END ps:architecture -->
 
 ## Path Mapping

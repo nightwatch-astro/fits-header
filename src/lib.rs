@@ -1,28 +1,68 @@
 //! # fits-header
 //!
-//! A dependency-free, `std`-only library for reading and writing the header of a
+//! A pure-Rust, MSVC-safe library for reading and writing the header of a
 //! [FITS](https://fits.gsfc.nasa.gov/fits_standard.html) file.
 //!
-//! The crate is deliberately free of application domain types: it exposes a
-//! generic, ordered [`Header`] of `(keyword, value, comment)` cards plus the
-//! machinery to parse a header out of raw FITS bytes and serialize it back into
-//! a valid FITS object. It supports full CRUD over single or multiple keywords.
+//! It reads a header unit into an ordered [`Header`] of records, retaining every card so untouched
+//! cards serialize byte-for-byte and only created or modified cards are re-rendered. Access is
+//! strict and keyword-oriented: [`Header::get`] and friends take a [`Key`] that is either a bare
+//! name (unique-or-[`FitsError::AmbiguousKeyword`]) or `(name, occurrence)`. Values read through a
+//! generic [`FromCard`] and write through [`IntoValue`]; batch edits are atomic; long strings use
+//! the `CONTINUE` convention.
 //!
-//! ## Status
+//! ```
+//! use fits_header::{Header, StructuralHints};
 //!
-//! This is the scaffold produced during project setup. The parser, the
-//! [`Header`] CRUD surface, and `to_bytes` serialization are implemented as
-//! follow-up work (see `AGENTS.md` and the SpecKit spec).
+//! let mut h = Header::new();
+//! h.set("OBJECT", "M31").unwrap();
+//! h.set("EXPTIME", 120.0).unwrap();
+//! assert_eq!(h.get::<f64>("EXPTIME").unwrap(), Some(120.0));
 //!
-//! ## Design goals
+//! let bytes = h.to_bytes(&StructuralHints::default());
+//! assert_eq!(bytes.len() % fits_header::BLOCK_LEN, 0);
+//! ```
 //!
-//! - **std-only, no dependencies** — publishable and MSVC-safe.
-//! - **Round-trippable** — `parse(header.to_bytes()) == header` for representative headers.
-//! - **Escape hatch** — arbitrary keywords can be written for vendor quirks.
+//! ## Design
+//!
+//! - **Pure Rust, MSVC-safe** — minimal dependencies, no C libraries.
+//! - **Byte-exact** — an untouched card (and untouched long-string run) re-emits identical bytes.
+//! - **Strict** — ambiguous keyword access errors instead of guessing.
+//!
+//! ## Features
+//!
+//! - `serde` *(off)* — derive `Serialize`/`Deserialize` on the public types.
+//! - `coords` *(off)* — sexagesimal RA/Dec and MJD↔calendar helpers.
 #![forbid(unsafe_code)]
 
-// Implementation to follow:
-//   - `struct Header` (ordered Vec of cards) with typed getters/setters.
-//   - `parse(&[u8]) -> Result<Header>` over 2880-byte blocks / 80-byte cards.
-//   - `Header::to_bytes(&StructuralHints) -> Vec<u8>`.
-//   - sexagesimal + numeric parsing helpers.
+mod dates;
+mod error;
+mod header;
+mod key;
+mod parse;
+mod record;
+mod value;
+mod write;
+
+#[cfg(feature = "coords")]
+mod coords;
+
+/// Bytes per header card.
+pub const CARD_LEN: usize = 80;
+/// Bytes per FITS block (36 cards).
+pub const BLOCK_LEN: usize = 2880;
+
+pub use crate::dates::{format_datetime, parse_datetime};
+pub use crate::error::FitsError;
+pub use crate::header::Header;
+pub use crate::key::Key;
+pub use crate::parse::parse;
+pub use crate::record::{Record, RecordKind, Value};
+pub use crate::value::{parse_f64, parse_i64, Fixed, FromCard, IntoValue, Literal, Sci};
+pub use crate::write::StructuralHints;
+
+#[cfg(feature = "coords")]
+pub use crate::coords::{
+    deg_to_sexagesimal_dec, deg_to_sexagesimal_ra, sexagesimal_dec_to_deg, sexagesimal_ra_to_deg,
+};
+#[cfg(feature = "coords")]
+pub use crate::dates::{datetime_to_mjd, mjd_to_datetime};
