@@ -10,10 +10,9 @@
 
 ## User Scenarios & Testing *(mandatory)*
 
-The consumers of this feature are **developers** integrating FITS metadata handling
-into their own tools (the immediate consumer being a thin metadata adapter in
-`nightwatch-astro/alm`). The "interface" is a library API; each user story below is a
-standalone slice that can be built, tested, and demonstrated on its own.
+The consumers of this feature are **developers** integrating FITS metadata handling into their
+own tools. The "interface" is a library API; each user story below is a standalone slice that
+can be built, tested, and demonstrated on its own.
 
 ### User Story 1 - Extract every header card from a FITS file (Priority: P1)
 
@@ -67,6 +66,9 @@ expectations.
    call, **Then** neither keyword is retrievable and the remaining cards keep their order.
 5. **Given** a caller needs a non-standard keyword (vendor quirk), **When** they set that
    arbitrary keyword, **Then** it is stored and later serialized without special-casing.
+6. **Given** a batch update where one entry is invalid (e.g. a keyword exceeding the
+   8-character field), **When** the batch is applied, **Then** the operation is rejected and
+   no keyword in the batch is changed (all-or-nothing).
 
 ---
 
@@ -185,6 +187,9 @@ boundary and round-trip between sexagesimal strings and degrees.
   keyword that is absent MUST create it.
 - **FR-011**: The library MUST allow deleting a keyword, both for a single keyword and for several
   keywords supplied together in one operation.
+- **FR-011a**: Batch mutations (multi-keyword create/update/delete) MUST be atomic: the library
+  validates every entry first and applies the whole batch, or, if any entry is rejected, applies
+  none and leaves the header unchanged.
 - **FR-012**: Card order MUST be preserved: in-place updates keep a card's position, newly created
   cards are appended, and order is retained through a serialize→parse round-trip.
 
@@ -272,7 +277,7 @@ boundary and round-trip between sexagesimal strings and degrees.
 - **Scope is a single (primary) header unit.** "All headers" means all cards of one header unit up
   to `END`. Multi-extension FITS files (additional HDUs beyond the primary) are out of scope for
   this feature; the parser reads one header and the serializer writes one header plus a minimal data
-  block. This matches the single-`END` read/write described in the brief and the source parser.
+  block.
 - **Input is an in-memory byte buffer** supplied by the caller; file I/O (opening/reading paths) is
   the caller's responsibility, not this library's.
 - **FITS conformance**: input follows the FITS convention of 80-byte cards in 2880-byte blocks;
@@ -280,9 +285,8 @@ boundary and round-trip between sexagesimal strings and degrees.
 - **Duplicate keywords**: reads and single-keyword updates operate on the first occurrence;
   bulk operations address distinct keywords.
 - **Values are held as text** and interpreted on demand by the generic typed read and helpers.
-- **Dependency policy**: the crate is not zero-dependency but stays pure-Rust and MSVC-safe.
-  Date/time is provided by the `time` crate (aligned with alm), errors by `thiserror`, optional
-  serialization by `serde`, and property testing by `proptest` (dev-only).
+- **Dependencies** are pure-Rust and MSVC-safe: `time` (date/time and MJD), `thiserror` (errors),
+  `serde` (optional serialization), and `proptest` (dev-only tests).
 - **Date/time semantics**: FITS date keywords are treated as timezone-naive civil date/times (UTC
   implied); leap seconds and non-UTC time scales (TAI/TT) are not modeled.
 - **License/packaging**: the crate is already scaffolded (Apache-2.0, publishable). The project
@@ -295,7 +299,7 @@ boundary and round-trip between sexagesimal strings and degrees.
   placeholder data block required for a valid object on write.
 - **Multi-extension HDU** traversal (headers of extension units beyond the primary).
 - Any **application-specific field↔keyword mapping** (e.g. mapping `EXPTIME` → a domain
-  `exposure` field); that belongs to a downstream adapter such as alm's `crates/metadata/fits`.
+  `exposure` field); that belongs to a downstream adapter.
 - Full **astronomical time scales** (TAI/TT/leap-second-precise epochs); only civil ISO-8601 and
   MJD↔calendar conversion are in scope.
 - File-system access, compression, checksum verification, and network I/O.

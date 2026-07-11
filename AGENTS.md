@@ -1,6 +1,6 @@
 # fits-header
 
-Dependency-free, std-only FITS header reader/writer: parse all cards from a FITS file, CRUD single or multiple header keywords, and serialize back to a valid FITS object.
+A pure-Rust FITS header reader/writer: parse all cards from a FITS file, CRUD single or multiple header keywords, and serialize back to a valid FITS object.
 
 ## Agent Guidance
 
@@ -48,8 +48,7 @@ Single library crate. The public surface lives in `src/lib.rs`:
   format (`deg_to_sexagesimal_ra`/`_dec`), lenient numeric parsing, and MJD <-> calendar
   date conversion (via `time`). An optional `serde` feature adds Serialize/Deserialize.
 
-The parser/writer implementation is follow-up work; this repo is the extraction
-scaffold (see the SpecKit spec under `specs/`).
+See the specification under `specs/` for the detailed requirements.
 <!-- END ps:architecture -->
 
 ## Path Mapping

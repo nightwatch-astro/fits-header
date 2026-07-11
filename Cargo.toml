@@ -16,7 +16,7 @@ categories = ["parser-implementations", "science", "encoding"]
 serde = ["dep:serde", "time/serde"]
 
 [dependencies]
-# Pure-Rust, MSVC-safe deps only (no C/system libraries). Aligned with nightwatch-astro/alm.
+# Pure-Rust, MSVC-safe deps only (no C/system libraries).
 time = { version = "0.3", features = ["parsing", "formatting"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"], optional = true }
