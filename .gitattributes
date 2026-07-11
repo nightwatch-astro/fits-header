@@ -1,0 +1,7 @@
+# Exclude shell scripts and agent/SpecKit tooling scaffolding from GitHub
+# language statistics (linguist) — small Rust crates otherwise report Shell
+# as the primary repository language.
+*.sh linguist-detectable=false
+.specify/** linguist-vendored
+.codex/** linguist-vendored
+.claude/** linguist-vendored
