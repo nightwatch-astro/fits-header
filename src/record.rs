@@ -203,3 +203,123 @@ pub fn validate_keyword_raw(name: &str) -> Result<(), FitsError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyword_validation_charset_and_length() {
+        for ok in ["", "A", "DATE-OBS", "NAXIS_1", "K2"] {
+            assert!(validate_keyword(ok).is_ok(), "{ok:?} should validate");
+        }
+        assert!(matches!(
+            validate_keyword("NINECHARS"),
+            Err(FitsError::KeywordTooLong { .. })
+        ));
+        for bad in ["obj", "KEY WORD", "É", "K.1"] {
+            assert!(
+                matches!(validate_keyword(bad), Err(FitsError::InvalidKeyword { .. })),
+                "{bad:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn raw_validation_allows_printable_ascii_only() {
+        for ok in ["obj", "K.1", "a b", "~"] {
+            assert!(validate_keyword_raw(ok).is_ok(), "{ok:?} should validate");
+        }
+        assert!(matches!(
+            validate_keyword_raw("NINECHARS"),
+            Err(FitsError::KeywordTooLong { .. })
+        ));
+        for bad in ["tab\there", "É"] {
+            assert!(
+                matches!(
+                    validate_keyword_raw(bad),
+                    Err(FitsError::InvalidKeyword { .. })
+                ),
+                "{bad:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn commentary_keywords() {
+        assert!(is_commentary_keyword(""));
+        assert!(is_commentary_keyword("COMMENT"));
+        assert!(is_commentary_keyword("HISTORY"));
+        assert!(!is_commentary_keyword("OBJECT"));
+    }
+
+    #[test]
+    fn accessors_by_kind() {
+        let v = Record::value("K", Value::Str("s".into()), Some("c".into()));
+        assert_eq!(v.keyword(), Some("K"));
+        assert_eq!(v.value_text(), Some("s"));
+        assert_eq!(v.str_content(), Some("s"));
+        assert_eq!(v.comment(), Some("c"));
+
+        let lit = Record::value("K", Value::Literal("42".into()), None);
+        assert_eq!(lit.value_text(), Some("42"));
+        assert_eq!(lit.str_content(), None, "literal is not Str content");
+
+        let c = Record::commentary("HISTORY", "note");
+        assert_eq!(c.keyword(), Some("HISTORY"));
+        assert_eq!(c.value_text(), Some("note"));
+        assert_eq!(c.str_content(), None);
+        assert_eq!(c.comment(), None);
+    }
+
+    #[test]
+    fn equality_ignores_retained_bytes() {
+        let kind = RecordKind::Value {
+            keyword: "K".into(),
+            value: Value::Str("s".into()),
+            comment: None,
+        };
+        let parsed = Record::from_raw(kind.clone(), vec![[b' '; CARD_LEN]]);
+        let created = Record::value("K", Value::Str("s".into()), None);
+        assert_eq!(parsed, created);
+    }
+
+    #[test]
+    fn mutation_drops_retained_bytes() {
+        let kind = RecordKind::Value {
+            keyword: "K".into(),
+            value: Value::Str("s".into()),
+            comment: None,
+        };
+        let mut r = Record::from_raw(kind, vec![[b' '; CARD_LEN]]);
+        assert!(r.raw_cards().is_some());
+        r.replace_value(Value::Str("t".into()));
+        assert!(r.raw_cards().is_none(), "edited record must reformat");
+
+        let mut r2 = Record::from_raw(
+            RecordKind::Value {
+                keyword: "K".into(),
+                value: Value::Str("s".into()),
+                comment: None,
+            },
+            vec![[b' '; CARD_LEN]],
+        );
+        r2.set_comment(Some("c".into()));
+        assert!(r2.raw_cards().is_none());
+        assert_eq!(r2.comment(), Some("c"));
+    }
+
+    #[test]
+    fn set_comment_ignores_non_value_records() {
+        let mut c = Record::from_raw(
+            RecordKind::Commentary {
+                keyword: "COMMENT".into(),
+                text: "x".into(),
+            },
+            vec![[b' '; CARD_LEN]],
+        );
+        c.set_comment(Some("ignored".into()));
+        assert_eq!(c.comment(), None);
+        assert!(c.raw_cards().is_some(), "no-op keeps original bytes");
+    }
+}

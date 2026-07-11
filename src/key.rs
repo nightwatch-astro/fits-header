@@ -59,3 +59,28 @@ impl From<(String, usize)> for Key {
         Key::Occurrence(name, n)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conversions_and_accessors() {
+        let k: Key = "GAIN".into();
+        assert_eq!(k, Key::Name("GAIN".to_string()));
+        assert_eq!(k.name(), "GAIN");
+        assert_eq!(k.occurrence(), None);
+
+        let k: Key = ("GAIN".to_string()).into();
+        assert_eq!(k.name(), "GAIN");
+        let k: Key = (&"GAIN".to_string()).into();
+        assert_eq!(k.name(), "GAIN");
+
+        let k: Key = ("GAIN", 1).into();
+        assert_eq!(k, Key::Occurrence("GAIN".to_string(), 1));
+        assert_eq!(k.name(), "GAIN");
+        assert_eq!(k.occurrence(), Some(1));
+        let k: Key = ("GAIN".to_string(), 2).into();
+        assert_eq!(k.occurrence(), Some(2));
+    }
+}

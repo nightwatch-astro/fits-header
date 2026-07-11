@@ -241,3 +241,86 @@ impl Header {
         write::to_bytes(self, structural)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_routes_commentary_keywords_to_commentary_records() {
+        let mut h = Header::new();
+        h.set("COMMENT", "a note").unwrap();
+        h.set("HISTORY", "step 1").unwrap();
+        assert!(matches!(
+            h.cards()[0].kind,
+            crate::record::RecordKind::Commentary { .. }
+        ));
+        assert_eq!(h.get_all::<String>("HISTORY"), vec!["step 1".to_string()]);
+    }
+
+    #[test]
+    fn get_all_skips_unconvertible_values() {
+        let mut h = Header::new();
+        h.append("GAIN", 100).unwrap();
+        h.append("GAIN", "not a number").unwrap();
+        h.append("GAIN", 200).unwrap();
+        assert_eq!(h.get_all::<i64>("GAIN"), vec![100, 200]);
+        assert_eq!(h.count("GAIN"), 3);
+    }
+
+    #[test]
+    fn set_comment_on_absent_key_is_noop() {
+        let mut h = Header::new();
+        h.set_comment("NOPE", "x").unwrap();
+        assert!(h.cards().is_empty());
+    }
+
+    #[test]
+    fn remove_returns_false_when_absent() {
+        let mut h = Header::new();
+        assert!(!h.remove("NOPE").unwrap());
+    }
+
+    #[test]
+    fn remove_many_aborts_on_ambiguity_before_removing() {
+        let mut h = Header::new();
+        h.set("A", 1).unwrap();
+        h.append("DUP", 1).unwrap();
+        h.append("DUP", 2).unwrap();
+        let before = h.clone();
+        assert!(matches!(
+            h.remove_many(["A", "DUP"]),
+            Err(FitsError::AmbiguousKeyword { .. })
+        ));
+        assert_eq!(h, before, "nothing may be removed on a rejected batch");
+
+        assert_eq!(h.remove_many(["A", "MISSING"]).unwrap(), 1);
+    }
+
+    #[test]
+    fn set_many_accepts_occurrence_keys() {
+        let mut h = Header::new();
+        h.append("GAIN", 1).unwrap();
+        h.append("GAIN", 2).unwrap();
+        h.set_many([(("GAIN", 0), 10), (("GAIN", 1), 20)]).unwrap();
+        assert_eq!(h.get_all::<i64>("GAIN"), vec![10, 20]);
+    }
+
+    #[test]
+    fn iter_matches_cards() {
+        let mut h = Header::new();
+        h.set("A", 1).unwrap();
+        h.set("B", 2).unwrap();
+        assert_eq!(h.iter().count(), 2);
+        let names: Vec<_> = h.iter().filter_map(|r| r.keyword()).collect();
+        assert_eq!(names, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn get_on_missing_key_is_ok_none() {
+        let h = Header::new();
+        assert_eq!(h.get::<i64>("NOPE").unwrap(), None);
+        assert_eq!(h.get_str("NOPE").unwrap(), None);
+        assert_eq!(h.get::<i64>(("NOPE", 3)).unwrap(), None);
+    }
+}
