@@ -27,6 +27,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 [dev-dependencies]
 # Property-based round-trip testing of the parse/to_bytes contract.
 proptest = "1"
+serde_json = "1.0.150"
 # Naming the datetime type in tests (the public API returns time::PrimitiveDateTime).
 time = "0.3"
 

@@ -123,6 +123,45 @@ fn to_bytes_zero_naxis_has_no_data_segment() {
 }
 
 #[test]
+fn untouched_continue_run_is_byte_exact() {
+    let bytes = build(&[
+        "LONGKEY = 'aaa&'",
+        "CONTINUE  'bbb&'",
+        "CONTINUE  'ccc'",
+        "GAIN    = 1",
+    ]);
+    let h = parse(&bytes).unwrap();
+    assert_eq!(h.get_str("LONGKEY").unwrap(), Some("aaabbbccc"));
+    assert_eq!(
+        h.to_header_bytes(),
+        bytes,
+        "untouched run re-emits verbatim"
+    );
+}
+
+#[test]
+fn edited_continue_run_resplits_with_longstrn() {
+    let bytes = build(&["LONGKEY = 'aaa&'", "CONTINUE  'bbb'", "GAIN    = 1"]);
+    let mut h = parse(&bytes).unwrap();
+    let long = "x".repeat(200);
+    h.set("LONGKEY", long.as_str()).unwrap();
+    let out = h.to_header_bytes();
+
+    let re = parse(&out).unwrap();
+    assert_eq!(re.get_str("LONGKEY").unwrap(), Some(long.as_str()));
+    assert_eq!(re.count("LONGSTRN"), 1, "convention card added on re-split");
+    assert_eq!(re.get::<i64>("GAIN").unwrap(), Some(1), "neighbors survive");
+}
+
+#[test]
+fn raw_keyword_survives_serialization() {
+    let mut h = Header::new();
+    h.set_raw("obj", "x").unwrap();
+    let re = parse(&h.to_header_bytes()).unwrap();
+    assert_eq!(re.get_str("obj").unwrap(), Some("x"));
+}
+
+#[test]
 fn long_string_uses_continue_and_roundtrips() {
     let mut h = Header::new();
     let long = "abcdefghij".repeat(15); // 150 chars
