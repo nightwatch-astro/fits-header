@@ -26,6 +26,12 @@ Apache-2.0 (`LICENSE`, `Cargo.toml` `license = "Apache-2.0"`).
   and in GitHub Actions CI (Linux, Windows, macOS).
 - `pre-commit`: hygiene hooks + `cargo fmt`/`cargo clippy` + `gitleaks` secret scan on push.
 
+## Release
+
+- **release-please** (`release-please.yml`) maintains the release PR from conventional
+  commits; merging it tags and publishes to crates.io via **Trusted Publishing** (OIDC,
+  no stored registry token). See `RELEASING.md`.
+
 ## Agentic tooling
 
 - **APM** (`apm.yml` / `apm.lock.yaml`): `language-rust`, `lsp-rust` (rust-analyzer), `speckit` +
