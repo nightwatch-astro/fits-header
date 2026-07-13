@@ -233,6 +233,10 @@ header.remove("GAIN").unwrap();
 # assert_eq!(header.get_all::<String>("HISTORY"), ["dark subtracted (master dark v2)", "flat fielded"]);
 ```
 
+These calls change only the in-memory `Header`; nothing is written to disk until you
+serialize it with `to_header_bytes` (see [Serialize](#serialize) below) or persist it
+with `update_file`.
+
 ## Atomic batches
 
 [`Header::set_many`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.set_many)

@@ -43,6 +43,9 @@ cargo add fits-header --features serde
 
 ## Usage
 
+A `Header` is an in-memory value; `set`/`remove`/`append` mutate it only — nothing is
+written to disk until you persist it.
+
 ```rust
 use fits_header::{Header, Result};
 
@@ -56,7 +59,7 @@ fn demo(bytes: &[u8]) -> Result<()> {
     let object: Option<&str> = header.get_str("OBJECT")?;
     let gain: Option<i64> = header.get(("GAIN", 1))?; // second occurrence
 
-    // Create, update, delete.
+    // Create, update, delete. These change the in-memory header only.
     header.set("OBJECT", "M31")?;
     header.set("EXPTIME", 300.0)?;
     header.remove("AIRMASS")?;
@@ -68,6 +71,17 @@ fn demo(bytes: &[u8]) -> Result<()> {
     // Creating a file: append your own pixel data after this — this crate never
     // fabricates it.
     let block: Vec<u8> = header.to_header_bytes();
+    Ok(())
+}
+
+// Creating a new file directly, no closure: build a header, serialize it, and write
+// your own bytes — this crate never fabricates pixel data.
+fn create_file(path: &std::path::Path) -> Result<()> {
+    let mut header = Header::new();
+    header.set("OBJECT", "M31")?;
+    let mut file = header.to_header_bytes();
+    file.extend_from_slice(&[0u8; 2880]); // stand-in pixel data
+    std::fs::write(path, file)?;
     Ok(())
 }
 

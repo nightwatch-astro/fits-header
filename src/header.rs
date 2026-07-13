@@ -12,6 +12,12 @@ use std::path::Path;
 /// An ordered FITS header unit: [`Record`]s in appearance order, with strict keyword
 /// access (via [`Key`]) and CRUD.
 ///
+/// A `Header` is an in-memory value. `set`, `append`, `remove`, `set_many`, and
+/// `set_comment` change it in memory only — nothing is written to disk. Persist it either
+/// by serializing [`to_header_bytes`](Self::to_header_bytes) and writing the bytes
+/// yourself (a new file — append your own pixel data), or by calling
+/// [`update_file`](Self::update_file) to edit an existing file's header in place.
+///
 /// Equality is semantic (records compare by content, not by retained bytes).
 #[derive(Clone, Debug, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -339,8 +345,9 @@ impl Header {
         }
     }
 
-    /// Update the addressed record in place, or append when the (unique) name is absent.
-    /// The keyword must be FITS-standard (`≤8`, `A-Z 0-9 - _`); use [`set_raw`](Self::set_raw)
+    /// Updates the addressed record (or appends when the unique name is absent) in the
+    /// in-memory header; nothing is written to disk — see [`Header`] to persist. The
+    /// keyword must be FITS-standard (`≤8`, `A-Z 0-9 - _`); use [`set_raw`](Self::set_raw)
     /// for vendor keys.
     ///
     /// # Examples
@@ -349,7 +356,7 @@ impl Header {
     /// # use fits_header::{FitsError, Header};
     /// let mut h = Header::new();
     /// h.set("OBJECT", "M31").unwrap(); // appends
-    /// h.set("OBJECT", "NGC 7000").unwrap(); // updates in place
+    /// h.set("OBJECT", "NGC 7000").unwrap(); // updates the in-memory record
     /// assert_eq!(h.count("OBJECT"), 1);
     ///
     /// let err = h.set("object", 1); // lowercase is not FITS-standard
@@ -373,7 +380,8 @@ impl Header {
         self.set_inner(Key::Name(keyword.to_string()), value.into_value(), true)
     }
 
-    /// Always add a record (a value card, or a commentary card for `COMMENT`/`HISTORY`/blank).
+    /// Always add a record to the in-memory header (a value card, or a commentary card
+    /// for `COMMENT`/`HISTORY`/blank).
     ///
     /// # Examples
     ///
@@ -410,7 +418,8 @@ impl Header {
         Ok(())
     }
 
-    /// Remove the addressed record. Returns whether anything was removed.
+    /// Remove the addressed record from the in-memory header. Returns whether anything
+    /// was removed.
     ///
     /// # Examples
     ///
@@ -431,7 +440,8 @@ impl Header {
         }
     }
 
-    /// Apply several mutations atomically: validate every entry first, then apply all or none.
+    /// Apply several mutations to the in-memory header atomically: validate every entry
+    /// first, then apply all or none.
     ///
     /// # Examples
     ///
@@ -504,8 +514,12 @@ impl Header {
         Ok(removed)
     }
 
-    /// Serialize the header block only (cards, `END`, padded to a 2880 multiple) for splicing onto
-    /// an existing file's data.
+    /// Serialize the header block only (cards, `END`, padded to a 2880 multiple).
+    ///
+    /// This is the direct persist path: serialize a header you built in memory, append
+    /// your own pixel data, and write the bytes yourself — for a new file. Contrast with
+    /// [`update_file`](Self::update_file), which edits an existing file's header while
+    /// preserving its data unit.
     ///
     /// # Examples
     ///
@@ -515,6 +529,20 @@ impl Header {
     /// h.set("OBJECT", "M31").unwrap();
     /// let bytes = h.to_header_bytes();
     /// assert_eq!(bytes.len() % fits_header::BLOCK_LEN, 0);
+    /// ```
+    ///
+    /// Writing a freshly built header directly to a new file, no closure:
+    ///
+    /// ```
+    /// use fits_header::Header;
+    ///
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// let mut file = h.to_header_bytes();          // the header block, padded to 2880
+    /// file.extend_from_slice(&[0u8; 4]);           // append your own pixel data
+    /// let path = std::env::temp_dir().join("fits-header-doctest-write.fits");
+    /// std::fs::write(&path, &file).unwrap();
+    /// # std::fs::remove_file(&path).ok();
     /// ```
     pub fn to_header_bytes(&self) -> Vec<u8> {
         write::to_header_bytes(self)
