@@ -13,7 +13,7 @@ Pure-Rust, MSVC-safe only — no C or system libraries.
 - **`time`** — FITS date keywords (`DATE-OBS`, `DATE-LOC`, `DATE-END`).
 - **`thiserror`** — error type for parse/serialize failures.
 - **`serde`** *(optional, `serde` feature, off by default)* — `Serialize`/`Deserialize` on the public types.
-- **`proptest`** *(dev)* — property tests for the parse ↔ `to_bytes` round-trip.
+- **`proptest`** *(dev)* — property tests for the parse ↔ `to_header_bytes` round-trip.
 - **`serde_json`** *(dev)* — JSON round-trip tests for the `serde` feature.
 
 ## Licensing

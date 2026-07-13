@@ -4,6 +4,15 @@ use crate::record::{Record, Value};
 
 /// Convert a record's value into a Rust type. The extension point behind
 /// [`Header::get`](crate::Header::get).
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{FromCard, Header};
+/// let mut h = Header::new();
+/// h.set("EXPTIME", 120.0).unwrap();
+/// assert_eq!(f64::from_card(&h.cards()[0]), Some(120.0));
+/// ```
 pub trait FromCard: Sized {
     /// Extract `Self` from a record, or `None` if absent/unparseable.
     fn from_card(record: &Record) -> Option<Self>;
@@ -11,6 +20,14 @@ pub trait FromCard: Sized {
 
 /// Convert a Rust value into a [`Value`]. The extension point behind
 /// [`Header::set`](crate::Header::set) / [`append`](crate::Header::append).
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{IntoValue, Value};
+/// assert_eq!(120i64.into_value(), Value::Literal("120".to_string()));
+/// assert_eq!("M31".into_value(), Value::Str("M31".to_string()));
+/// ```
 pub trait IntoValue {
     /// The value payload to store.
     fn into_value(self) -> Value;

@@ -1,31 +1,22 @@
 //! Parse a FITS header unit from raw bytes.
 
-use crate::error::FitsError;
+use crate::error::Result;
 use crate::header::Header;
 use crate::record::{RecordKind, Value};
 use crate::CARD_LEN;
+
+/// Deprecated free-function alias for [`Header::parse`](crate::Header::parse); use that instead.
+#[deprecated(note = "use Header::parse")]
+pub fn parse(bytes: &[u8]) -> Result<Header> {
+    parse_header(bytes)
+}
 
 /// Parse one FITS header unit from raw bytes.
 ///
 /// Reads 80-byte cards in order, stops at `END`, and retains every card (including commentary,
 /// `HIERARCH`, and unrecognized cards) so untouched cards serialize verbatim. `CONTINUE` runs are
 /// reassembled into a single logical value.
-///
-/// # Examples
-///
-/// ```
-/// let mut bytes = Vec::new();
-/// for card in ["OBJECT  = 'M31     '", "EXPTIME =                120.0", "END"] {
-///     let mut c = card.as_bytes().to_vec();
-///     c.resize(80, b' ');
-///     bytes.extend(c);
-/// }
-///
-/// let header = fits_header::parse(&bytes).unwrap();
-/// assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
-/// assert_eq!(header.get::<f64>("EXPTIME").unwrap(), Some(120.0));
-/// ```
-pub fn parse(bytes: &[u8]) -> Result<Header, FitsError> {
+pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
     let cards: Vec<[u8; CARD_LEN]> = bytes
         .chunks_exact(CARD_LEN)
         .map(|c| {
@@ -239,7 +230,7 @@ mod tests {
 
     #[test]
     fn hierarch_and_unrecognized_are_opaque() {
-        let h = parse(&block(&["HIERARCH ESO DET DIT = 10.0", "JUNK CARD"])).unwrap();
+        let h = parse_header(&block(&["HIERARCH ESO DET DIT = 10.0", "JUNK CARD"])).unwrap();
         assert_eq!(h.cards().len(), 2);
         for r in h.cards() {
             assert!(matches!(r.kind, RecordKind::Opaque { .. }));
@@ -249,7 +240,7 @@ mod tests {
 
     #[test]
     fn fully_blank_card_is_opaque_blank_with_text_is_commentary() {
-        let h = parse(&block(&["", "        some annotation"])).unwrap();
+        let h = parse_header(&block(&["", "        some annotation"])).unwrap();
         assert!(matches!(
             h.cards()[0].kind,
             RecordKind::Opaque { ref text } if text.is_empty()
@@ -264,14 +255,14 @@ mod tests {
     #[test]
     fn stray_continue_is_opaque() {
         // CONTINUE without a preceding '&'-terminated string is not a value card.
-        let h = parse(&block(&["OBJECT  = 'X'", "CONTINUE  'orphan'"])).unwrap();
+        let h = parse_header(&block(&["OBJECT  = 'X'", "CONTINUE  'orphan'"])).unwrap();
         assert_eq!(h.get_str("OBJECT").unwrap(), Some("X"));
         assert!(matches!(h.cards()[1].kind, RecordKind::Opaque { .. }));
     }
 
     #[test]
     fn continue_comment_comes_from_last_card() {
-        let h = parse(&block(&["LONG    = 'aaa&'", "CONTINUE  'bbb' / tail note"])).unwrap();
+        let h = parse_header(&block(&["LONG    = 'aaa&'", "CONTINUE  'bbb' / tail note"])).unwrap();
         assert_eq!(h.get_str("LONG").unwrap(), Some("aaabbb"));
         assert_eq!(h.cards()[0].comment(), Some("tail note"));
     }
@@ -279,7 +270,7 @@ mod tests {
     #[test]
     fn continue_run_at_end_of_input_keeps_marker() {
         // '&' with no following CONTINUE card: marker is literal content.
-        let h = parse(&block(&["LONG    = 'aaa&'"])).unwrap();
+        let h = parse_header(&block(&["LONG    = 'aaa&'"])).unwrap();
         assert_eq!(h.get_str("LONG").unwrap(), Some("aaa&"));
     }
 
@@ -287,7 +278,7 @@ mod tests {
     fn trailing_partial_card_is_dropped() {
         let mut bytes = block(&["OBJECT  = 'X'"]);
         bytes.extend_from_slice(b"GAIN    = 1"); // 11 bytes, not a full card
-        let h = parse(&bytes).unwrap();
+        let h = parse_header(&bytes).unwrap();
         assert_eq!(h.get_str("OBJECT").unwrap(), Some("X"));
         assert_eq!(h.count("GAIN"), 0);
     }
@@ -296,14 +287,14 @@ mod tests {
     fn non_utf8_bytes_parse_lossily() {
         let mut cards = block(&["OBJECT  = 'X'"]);
         cards[15] = 0xff; // inside the value field
-        let h = parse(&cards).unwrap();
+        let h = parse_header(&cards).unwrap();
         assert_eq!(h.cards().len(), 1, "card is retained, lossily decoded");
     }
 
     #[test]
     fn value_needs_equals_space() {
         // '=' not followed by a space is not a value indicator.
-        let h = parse(&block(&["WEIRD   =X"])).unwrap();
+        let h = parse_header(&block(&["WEIRD   =X"])).unwrap();
         assert!(matches!(h.cards()[0].kind, RecordKind::Opaque { .. }));
     }
 }

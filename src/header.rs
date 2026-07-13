@@ -1,12 +1,16 @@
 //! The ordered header of records and its keyword access.
 
-use crate::error::FitsError;
+use crate::error::{FitsError, Result};
 use crate::key::Key;
 use crate::record::{is_commentary_keyword, validate_keyword, validate_keyword_raw, Record, Value};
 use crate::value::{FromCard, IntoValue};
-use crate::write::{self, StructuralHints};
+use crate::write;
+use crate::{BLOCK_LEN, CARD_LEN};
+use std::fs;
+use std::path::Path;
 
-/// An ordered FITS header unit: records in appearance order, with strict keyword access and CRUD.
+/// An ordered FITS header unit: [`Record`]s in appearance order, with strict keyword
+/// access (via [`Key`]) and CRUD.
 ///
 /// Equality is semantic (records compare by content, not by retained bytes).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -17,6 +21,14 @@ pub struct Header {
 
 impl Header {
     /// An empty header.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let h = Header::new();
+    /// assert_eq!(h.count("OBJECT"), 0);
+    /// ```
     pub fn new() -> Self {
         Header::default()
     }
@@ -26,17 +38,181 @@ impl Header {
         Header { records }
     }
 
+    /// Parse one FITS header unit from raw bytes.
+    ///
+    /// Reads 80-byte cards in order, stops at `END`, and retains every card (including
+    /// commentary, `HIERARCH`, and unrecognized cards) so untouched cards serialize verbatim.
+    /// `CONTINUE` runs are reassembled into a single logical value. Bytes after `END` (the data
+    /// unit, later HDUs) are ignored — this crate is header-only and never inspects them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fits_header::Header;
+    ///
+    /// let mut bytes = Vec::new();
+    /// for card in ["OBJECT  = 'M31     '", "EXPTIME =                120.0", "END"] {
+    ///     let mut c = card.as_bytes().to_vec();
+    ///     c.resize(80, b' ');
+    ///     bytes.extend(c);
+    /// }
+    ///
+    /// let header = Header::parse(&bytes).unwrap();
+    /// assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
+    /// assert_eq!(header.get::<f64>("EXPTIME").unwrap(), Some(120.0));
+    /// ```
+    pub fn parse(bytes: &[u8]) -> Result<Header> {
+        crate::parse::parse_header(bytes)
+    }
+
+    /// Read a FITS header from a file on disk.
+    ///
+    /// Reads the whole file and [`parse`](Self::parse)s it; parsing already stops at `END`, so
+    /// the data unit and any later HDUs are read but never interpreted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fits_header::Header;
+    ///
+    /// let mut bytes = Vec::new();
+    /// for card in ["OBJECT  = 'M31     '", "END"] {
+    ///     let mut c = card.as_bytes().to_vec();
+    ///     c.resize(80, b' ');
+    ///     bytes.extend(c);
+    /// }
+    /// while bytes.len() % fits_header::BLOCK_LEN != 0 {
+    ///     bytes.push(b' ');
+    /// }
+    /// bytes.extend_from_slice(&[0u8; 4]); // stand-in pixel data
+    ///
+    /// let path = std::env::temp_dir().join("fits-header-doctest-read_from_file.fits");
+    /// std::fs::write(&path, &bytes).unwrap();
+    ///
+    /// let header = Header::read_from_file(&path).unwrap();
+    /// assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
+    ///
+    /// std::fs::remove_file(&path).ok();
+    /// ```
+    pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<Header> {
+        let bytes = fs::read(path)?;
+        Header::parse(&bytes)
+    }
+
+    /// Edit a FITS file's header in place, preserving its data unit (and any later HDUs)
+    /// byte-for-byte.
+    ///
+    /// Reads the whole file, locates the header region by scanning for the `END` card, parses
+    /// only that region, runs `edit` on it, then writes the re-serialized header back followed
+    /// by every byte that came after the original header — untouched, regardless of what `edit`
+    /// did.
+    ///
+    /// The write is atomic and edits the real file in place: it writes a temp file in the
+    /// target's directory and renames it over the target. It follows symlinks (a symlinked
+    /// `path` stays a symlink; its target is edited) and, on Unix, preserves the target's file
+    /// mode. A crash or interruption cannot leave a truncated file.
+    ///
+    /// Errors with [`FitsError::MissingEnd`] if the file has no `END` card, or
+    /// [`FitsError::TruncatedHeader`] if it has one but ends before the header's 2880-byte
+    /// block is complete.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fits_header::Header;
+    ///
+    /// let mut bytes = Vec::new();
+    /// for card in ["OBJECT  = 'M31     '", "END"] {
+    ///     let mut c = card.as_bytes().to_vec();
+    ///     c.resize(80, b' ');
+    ///     bytes.extend(c);
+    /// }
+    /// while bytes.len() % fits_header::BLOCK_LEN != 0 {
+    ///     bytes.push(b' ');
+    /// }
+    /// let data = [1u8, 2, 3, 4]; // stand-in pixel data
+    /// bytes.extend_from_slice(&data);
+    ///
+    /// let path = std::env::temp_dir().join("fits-header-doctest-update_file.fits");
+    /// std::fs::write(&path, &bytes).unwrap();
+    ///
+    /// Header::update_file(&path, |h| {
+    ///     h.set("OBJECT", "NGC 7000")?;
+    ///     Ok(())
+    /// })
+    /// .unwrap();
+    ///
+    /// let after = std::fs::read(&path).unwrap();
+    /// let header = Header::parse(&after).unwrap();
+    /// assert_eq!(header.get_str("OBJECT").unwrap(), Some("NGC 7000"));
+    /// assert_eq!(&after[after.len() - data.len()..], &data, "data unit preserved");
+    ///
+    /// std::fs::remove_file(&path).ok();
+    /// ```
+    pub fn update_file<P: AsRef<Path>>(
+        path: P,
+        edit: impl FnOnce(&mut Header) -> Result<()>,
+    ) -> Result<()> {
+        let path = path.as_ref();
+        let bytes = fs::read(path)?;
+        let header_len = header_region_len(&bytes)?;
+        if header_len > bytes.len() {
+            // END found, but the file ends before the header block is padded out.
+            return Err(FitsError::TruncatedHeader);
+        }
+        let tail = &bytes[header_len..];
+
+        let mut header = Header::parse(&bytes[..header_len])?;
+        edit(&mut header)?;
+
+        let mut out = header.to_header_bytes();
+        out.extend_from_slice(tail);
+        write_atomic(path, &out)?;
+        Ok(())
+    }
+
     /// The records in order (read-only escape hatch).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// assert_eq!(h.cards()[0].keyword(), Some("OBJECT"));
+    /// ```
     pub fn cards(&self) -> &[Record] {
         &self.records
     }
 
     /// Iterate the records in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// let names: Vec<&str> = h.iter().filter_map(|r| r.keyword()).collect();
+    /// assert_eq!(names, vec!["OBJECT", "EXPTIME"]);
+    /// ```
     pub fn iter(&self) -> impl Iterator<Item = &Record> {
         self.records.iter()
     }
 
     /// How many records carry this keyword.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.append("HISTORY", "dark subtracted").unwrap();
+    /// h.append("HISTORY", "flat fielded").unwrap();
+    /// assert_eq!(h.count("HISTORY"), 2);
+    /// assert_eq!(h.count("OBJECT"), 0);
+    /// ```
     pub fn count(&self, name: &str) -> usize {
         self.records
             .iter()
@@ -45,7 +221,7 @@ impl Header {
     }
 
     /// Resolve a key to a record index. A bare name is strict.
-    fn resolve(&self, key: &Key) -> Result<Option<usize>, FitsError> {
+    fn resolve(&self, key: &Key) -> Result<Option<usize>> {
         let name = key.name();
         let indices: Vec<usize> = self
             .records
@@ -79,20 +255,45 @@ impl Header {
     /// assert_eq!(h.get::<f64>("EXPTIME").unwrap(), Some(120.0));
     /// assert_eq!(h.get::<i64>("MISSING").unwrap(), None);
     /// ```
-    pub fn get<T: FromCard>(&self, key: impl Into<Key>) -> Result<Option<T>, FitsError> {
+    pub fn get<T: FromCard>(&self, key: impl Into<Key>) -> Result<Option<T>> {
         Ok(self
             .resolve(&key.into())?
             .and_then(|i| T::from_card(&self.records[i])))
     }
 
     /// Borrow a keyword's string value (`Str` content, non-empty); `None` for empty or a literal.
-    pub fn get_str(&self, key: impl Into<Key>) -> Result<Option<&str>, FitsError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// h.set("EXPTIME", 120.0).unwrap(); // a Literal, not Str content
+    /// assert_eq!(h.get_str("OBJECT").unwrap(), Some("M31"));
+    /// assert_eq!(h.get_str("EXPTIME").unwrap(), None);
+    /// ```
+    pub fn get_str(&self, key: impl Into<Key>) -> Result<Option<&str>> {
         Ok(self
             .resolve(&key.into())?
             .and_then(|i| self.records[i].str_content()))
     }
 
-    /// Every value for a keyword, in order.
+    /// Every value for a keyword, in order. Unlike [`get`](Self::get), never errors on a
+    /// duplicated keyword — that is the point of calling it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.append("HISTORY", "dark subtracted").unwrap();
+    /// h.append("HISTORY", "flat fielded").unwrap();
+    /// assert_eq!(
+    ///     h.get_all::<String>("HISTORY"),
+    ///     vec!["dark subtracted".to_string(), "flat fielded".to_string()]
+    /// );
+    /// ```
     pub fn get_all<T: FromCard>(&self, name: &str) -> Vec<T> {
         self.records
             .iter()
@@ -112,7 +313,7 @@ impl Header {
         }
     }
 
-    fn set_inner(&mut self, key: Key, value: Value, raw: bool) -> Result<(), FitsError> {
+    fn set_inner(&mut self, key: Key, value: Value, raw: bool) -> Result<()> {
         let name = key.name().to_string();
         if raw {
             validate_keyword_raw(&name)?;
@@ -154,12 +355,21 @@ impl Header {
     /// let err = h.set("object", 1); // lowercase is not FITS-standard
     /// assert!(matches!(err, Err(FitsError::InvalidKeyword { .. })));
     /// ```
-    pub fn set(&mut self, key: impl Into<Key>, value: impl IntoValue) -> Result<(), FitsError> {
+    pub fn set(&mut self, key: impl Into<Key>, value: impl IntoValue) -> Result<()> {
         self.set_inner(key.into(), value.into_value(), false)
     }
 
     /// Like [`set`](Self::set) but accepts any ≤8-char printable-ASCII keyword (vendor escape hatch).
-    pub fn set_raw(&mut self, keyword: &str, value: impl IntoValue) -> Result<(), FitsError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set_raw("pi.name", "Jane Doe").unwrap(); // lowercase, not FITS-standard
+    /// assert_eq!(h.get_str("pi.name").unwrap(), Some("Jane Doe"));
+    /// ```
+    pub fn set_raw(&mut self, keyword: &str, value: impl IntoValue) -> Result<()> {
         self.set_inner(Key::Name(keyword.to_string()), value.into_value(), true)
     }
 
@@ -174,7 +384,7 @@ impl Header {
     /// h.append("HISTORY", "flat fielded").unwrap();
     /// assert_eq!(h.get_all::<String>("HISTORY").len(), 2);
     /// ```
-    pub fn append(&mut self, name: &str, value: impl IntoValue) -> Result<(), FitsError> {
+    pub fn append(&mut self, name: &str, value: impl IntoValue) -> Result<()> {
         validate_keyword(name)?;
         self.records
             .push(Self::make_record(name, value.into_value()));
@@ -183,11 +393,17 @@ impl Header {
 
     /// Set or replace the addressed value card's inline comment. No-op if the keyword is absent
     /// or not a value card.
-    pub fn set_comment(
-        &mut self,
-        key: impl Into<Key>,
-        comment: impl Into<String>,
-    ) -> Result<(), FitsError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// h.set_comment("EXPTIME", "seconds").unwrap();
+    /// assert_eq!(h.cards()[0].comment(), Some("seconds"));
+    /// ```
+    pub fn set_comment(&mut self, key: impl Into<Key>, comment: impl Into<String>) -> Result<()> {
         if let Some(i) = self.resolve(&key.into())? {
             self.records[i].set_comment(Some(comment.into()));
         }
@@ -205,7 +421,7 @@ impl Header {
     /// assert!(h.remove("AIRMASS").unwrap());
     /// assert!(!h.remove("AIRMASS").unwrap());
     /// ```
-    pub fn remove(&mut self, key: impl Into<Key>) -> Result<bool, FitsError> {
+    pub fn remove(&mut self, key: impl Into<Key>) -> Result<bool> {
         match self.resolve(&key.into())? {
             Some(i) => {
                 self.records.remove(i);
@@ -228,10 +444,7 @@ impl Header {
     /// assert!(h.set_many([("GAIN", "1"), ("TOOLONGKEY", "2")]).is_err());
     /// assert_eq!(h.count("GAIN"), 0);
     /// ```
-    pub fn set_many<K, V>(
-        &mut self,
-        entries: impl IntoIterator<Item = (K, V)>,
-    ) -> Result<(), FitsError>
+    pub fn set_many<K, V>(&mut self, entries: impl IntoIterator<Item = (K, V)>) -> Result<()>
     where
         K: Into<Key>,
         V: IntoValue,
@@ -263,10 +476,21 @@ impl Header {
     }
 
     /// Remove several keys atomically (validation only guards ambiguity). Returns the count removed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// assert_eq!(h.remove_many(["OBJECT", "MISSING"]).unwrap(), 1);
+    /// assert_eq!(h.count("OBJECT"), 0);
+    /// ```
     pub fn remove_many<K: Into<Key>>(
         &mut self,
         keys: impl IntoIterator<Item = K>,
-    ) -> Result<usize, FitsError> {
+    ) -> Result<usize> {
         let keys: Vec<Key> = keys.into_iter().map(Into::into).collect();
         for k in &keys {
             self.resolve(k)?;
@@ -295,26 +519,73 @@ impl Header {
     pub fn to_header_bytes(&self) -> Vec<u8> {
         write::to_header_bytes(self)
     }
+}
 
-    /// Serialize a standalone FITS object (header + a minimal zero data block). Mandatory
-    /// structural cards are synthesized only when absent; `structural` is a fallback.
-    ///
-    /// Errors with [`FitsError::DataTooLarge`] when the declared data segment exceeds
-    /// [`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL) — for real-file edits, serialize with
-    /// [`to_header_bytes`](Self::to_header_bytes) and splice the original data.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use fits_header::{Header, StructuralHints};
-    /// let mut h = Header::new();
-    /// h.set("OBJECT", "M31").unwrap();
-    /// let file = h.to_bytes(&StructuralHints::default()).unwrap();
-    /// assert!(file.starts_with(b"SIMPLE"));
-    /// ```
-    pub fn to_bytes(&self, structural: &StructuralHints) -> Result<Vec<u8>, FitsError> {
-        write::to_bytes(self, structural)
+/// The byte length of the header region at the start of `bytes`: cards up to and including
+/// `END`, rounded up to a [`BLOCK_LEN`] multiple. Scans the same way [`Header::parse`] does, so
+/// this always agrees with what parsing would consume.
+fn header_region_len(bytes: &[u8]) -> Result<usize> {
+    for (i, card) in bytes.chunks_exact(CARD_LEN).enumerate() {
+        let keyword = String::from_utf8_lossy(&card[..8]).trim().to_string();
+        if keyword == "END" {
+            let raw_len = (i + 1) * CARD_LEN;
+            return Ok(raw_len.div_ceil(BLOCK_LEN) * BLOCK_LEN);
+        }
     }
+    Err(FitsError::MissingEnd)
+}
+
+/// Write `bytes` to `path` atomically, editing the real file in place.
+///
+/// Follows symlinks: if `path` is a symlink, its canonical target is resolved first and both
+/// the temp file and the rename land in the target's directory, so the link is preserved and
+/// the file it points at is the one edited. The temp file is renamed over the target (an atomic
+/// replace), so a crash mid-write leaves the original file intact, never a truncated one. On
+/// Unix the target's file mode is copied onto the temp file before the rename, so a 0600 file
+/// stays 0600 instead of dropping to the umask default. Any failure after the temp file is
+/// created removes it.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    // Resolve symlinks so we edit the real file in place; fall back to `path` if it does not
+    // yet exist (update_file always reads first, so it does).
+    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let dir = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = target.file_name().map(|n| n.to_string_lossy().into_owned());
+    let tmp_name = match file_name {
+        Some(name) => format!(".{name}.tmp-{}", std::process::id()),
+        None => format!(".fits-header.tmp-{}", std::process::id()),
+    };
+    let tmp_path = dir.join(tmp_name);
+
+    let result = (|| {
+        fs::write(&tmp_path, bytes)?;
+        copy_mode(&target, &tmp_path)?;
+        fs::rename(&tmp_path, &target)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
+    }
+    result
+}
+
+/// Copy `src`'s file permissions onto `dst`. No-op off Unix, and silently ignores a missing
+/// `src` (a freshly created file has no prior mode to preserve).
+#[cfg(unix)]
+fn copy_mode(src: &Path, dst: &Path) -> Result<()> {
+    match fs::metadata(src) {
+        Ok(meta) => fs::set_permissions(dst, meta.permissions())?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn copy_mode(_src: &Path, _dst: &Path) -> Result<()> {
+    Ok(())
 }
 
 #[cfg(test)]
