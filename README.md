@@ -44,9 +44,9 @@ cargo add fits-header --features serde
 ## Usage
 
 ```rust
-use fits_header::{FitsError, Header};
+use fits_header::{Header, Result};
 
-fn demo(bytes: &[u8]) -> Result<(), FitsError> {
+fn demo(bytes: &[u8]) -> Result<()> {
     // Read every card from a FITS header unit.
     let mut header = Header::parse(bytes)?;
 
@@ -72,7 +72,7 @@ fn demo(bytes: &[u8]) -> Result<(), FitsError> {
 }
 
 // Editing a file on disk: the data unit (and any later HDUs) survives untouched.
-fn edit_in_place(path: &std::path::Path) -> Result<(), FitsError> {
+fn edit_in_place(path: &std::path::Path) -> Result<()> {
     Header::update_file(path, |h| {
         h.set("OBJECT", "M31")?;
         Ok(())

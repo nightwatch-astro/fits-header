@@ -1,5 +1,8 @@
 //! Error type for fallible header operations.
 
+/// A `Result` whose error is always [`FitsError`].
+pub type Result<T> = std::result::Result<T, FitsError>;
+
 /// Errors from validated header mutations, ambiguous lookups, and oversized standalone
 /// serialization.
 ///

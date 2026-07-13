@@ -5,7 +5,7 @@
 //! Run with `cargo run --example quickstart`. Every section here also appears in
 //! `docs/guide.md`, so the two stay in sync.
 
-use fits_header::{FitsError, Header};
+use fits_header::{Header, Result};
 
 /// The header used throughout this walkthrough: a CCD image of M31.
 ///
@@ -40,7 +40,7 @@ fn sample_header_bytes() -> Vec<u8> {
     bytes
 }
 
-fn main() -> Result<(), FitsError> {
+fn main() -> Result<()> {
     // Parse every card. Cards left untouched below re-serialize byte-for-byte.
     let mut header: Header = Header::parse(&sample_header_bytes()).unwrap();
 

@@ -50,7 +50,7 @@ pub const CARD_LEN: usize = 80;
 pub const BLOCK_LEN: usize = 2880;
 
 pub use crate::dates::{format_datetime, parse_datetime};
-pub use crate::error::FitsError;
+pub use crate::error::{FitsError, Result};
 pub use crate::header::Header;
 pub use crate::key::Key;
 #[allow(deprecated)]

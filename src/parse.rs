@@ -1,13 +1,13 @@
 //! Parse a FITS header unit from raw bytes.
 
-use crate::error::FitsError;
+use crate::error::Result;
 use crate::header::Header;
 use crate::record::{RecordKind, Value};
 use crate::CARD_LEN;
 
 /// Deprecated free-function alias for [`Header::parse`](crate::Header::parse); use that instead.
 #[deprecated(note = "use Header::parse")]
-pub fn parse(bytes: &[u8]) -> Result<Header, FitsError> {
+pub fn parse(bytes: &[u8]) -> Result<Header> {
     parse_header(bytes)
 }
 
@@ -16,7 +16,7 @@ pub fn parse(bytes: &[u8]) -> Result<Header, FitsError> {
 /// Reads 80-byte cards in order, stops at `END`, and retains every card (including commentary,
 /// `HIERARCH`, and unrecognized cards) so untouched cards serialize verbatim. `CONTINUE` runs are
 /// reassembled into a single logical value.
-pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header, FitsError> {
+pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
     let cards: Vec<[u8; CARD_LEN]> = bytes
         .chunks_exact(CARD_LEN)
         .map(|c| {

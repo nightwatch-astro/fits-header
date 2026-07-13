@@ -1,6 +1,6 @@
 //! The ordered header of records and its keyword access.
 
-use crate::error::FitsError;
+use crate::error::{FitsError, Result};
 use crate::key::Key;
 use crate::record::{is_commentary_keyword, validate_keyword, validate_keyword_raw, Record, Value};
 use crate::value::{FromCard, IntoValue};
@@ -61,7 +61,7 @@ impl Header {
     /// assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
     /// assert_eq!(header.get::<f64>("EXPTIME").unwrap(), Some(120.0));
     /// ```
-    pub fn parse(bytes: &[u8]) -> Result<Header, FitsError> {
+    pub fn parse(bytes: &[u8]) -> Result<Header> {
         crate::parse::parse_header(bytes)
     }
 
@@ -94,7 +94,7 @@ impl Header {
     ///
     /// std::fs::remove_file(&path).ok();
     /// ```
-    pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<Header, FitsError> {
+    pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<Header> {
         let bytes = fs::read(path)?;
         Header::parse(&bytes)
     }
@@ -151,8 +151,8 @@ impl Header {
     /// ```
     pub fn update_file<P: AsRef<Path>>(
         path: P,
-        edit: impl FnOnce(&mut Header) -> Result<(), FitsError>,
-    ) -> Result<(), FitsError> {
+        edit: impl FnOnce(&mut Header) -> Result<()>,
+    ) -> Result<()> {
         let path = path.as_ref();
         let bytes = fs::read(path)?;
         let header_len = header_region_len(&bytes)?;
@@ -221,7 +221,7 @@ impl Header {
     }
 
     /// Resolve a key to a record index. A bare name is strict.
-    fn resolve(&self, key: &Key) -> Result<Option<usize>, FitsError> {
+    fn resolve(&self, key: &Key) -> Result<Option<usize>> {
         let name = key.name();
         let indices: Vec<usize> = self
             .records
@@ -255,7 +255,7 @@ impl Header {
     /// assert_eq!(h.get::<f64>("EXPTIME").unwrap(), Some(120.0));
     /// assert_eq!(h.get::<i64>("MISSING").unwrap(), None);
     /// ```
-    pub fn get<T: FromCard>(&self, key: impl Into<Key>) -> Result<Option<T>, FitsError> {
+    pub fn get<T: FromCard>(&self, key: impl Into<Key>) -> Result<Option<T>> {
         Ok(self
             .resolve(&key.into())?
             .and_then(|i| T::from_card(&self.records[i])))
@@ -273,7 +273,7 @@ impl Header {
     /// assert_eq!(h.get_str("OBJECT").unwrap(), Some("M31"));
     /// assert_eq!(h.get_str("EXPTIME").unwrap(), None);
     /// ```
-    pub fn get_str(&self, key: impl Into<Key>) -> Result<Option<&str>, FitsError> {
+    pub fn get_str(&self, key: impl Into<Key>) -> Result<Option<&str>> {
         Ok(self
             .resolve(&key.into())?
             .and_then(|i| self.records[i].str_content()))
@@ -313,7 +313,7 @@ impl Header {
         }
     }
 
-    fn set_inner(&mut self, key: Key, value: Value, raw: bool) -> Result<(), FitsError> {
+    fn set_inner(&mut self, key: Key, value: Value, raw: bool) -> Result<()> {
         let name = key.name().to_string();
         if raw {
             validate_keyword_raw(&name)?;
@@ -355,7 +355,7 @@ impl Header {
     /// let err = h.set("object", 1); // lowercase is not FITS-standard
     /// assert!(matches!(err, Err(FitsError::InvalidKeyword { .. })));
     /// ```
-    pub fn set(&mut self, key: impl Into<Key>, value: impl IntoValue) -> Result<(), FitsError> {
+    pub fn set(&mut self, key: impl Into<Key>, value: impl IntoValue) -> Result<()> {
         self.set_inner(key.into(), value.into_value(), false)
     }
 
@@ -369,7 +369,7 @@ impl Header {
     /// h.set_raw("pi.name", "Jane Doe").unwrap(); // lowercase, not FITS-standard
     /// assert_eq!(h.get_str("pi.name").unwrap(), Some("Jane Doe"));
     /// ```
-    pub fn set_raw(&mut self, keyword: &str, value: impl IntoValue) -> Result<(), FitsError> {
+    pub fn set_raw(&mut self, keyword: &str, value: impl IntoValue) -> Result<()> {
         self.set_inner(Key::Name(keyword.to_string()), value.into_value(), true)
     }
 
@@ -384,7 +384,7 @@ impl Header {
     /// h.append("HISTORY", "flat fielded").unwrap();
     /// assert_eq!(h.get_all::<String>("HISTORY").len(), 2);
     /// ```
-    pub fn append(&mut self, name: &str, value: impl IntoValue) -> Result<(), FitsError> {
+    pub fn append(&mut self, name: &str, value: impl IntoValue) -> Result<()> {
         validate_keyword(name)?;
         self.records
             .push(Self::make_record(name, value.into_value()));
@@ -403,11 +403,7 @@ impl Header {
     /// h.set_comment("EXPTIME", "seconds").unwrap();
     /// assert_eq!(h.cards()[0].comment(), Some("seconds"));
     /// ```
-    pub fn set_comment(
-        &mut self,
-        key: impl Into<Key>,
-        comment: impl Into<String>,
-    ) -> Result<(), FitsError> {
+    pub fn set_comment(&mut self, key: impl Into<Key>, comment: impl Into<String>) -> Result<()> {
         if let Some(i) = self.resolve(&key.into())? {
             self.records[i].set_comment(Some(comment.into()));
         }
@@ -425,7 +421,7 @@ impl Header {
     /// assert!(h.remove("AIRMASS").unwrap());
     /// assert!(!h.remove("AIRMASS").unwrap());
     /// ```
-    pub fn remove(&mut self, key: impl Into<Key>) -> Result<bool, FitsError> {
+    pub fn remove(&mut self, key: impl Into<Key>) -> Result<bool> {
         match self.resolve(&key.into())? {
             Some(i) => {
                 self.records.remove(i);
@@ -448,10 +444,7 @@ impl Header {
     /// assert!(h.set_many([("GAIN", "1"), ("TOOLONGKEY", "2")]).is_err());
     /// assert_eq!(h.count("GAIN"), 0);
     /// ```
-    pub fn set_many<K, V>(
-        &mut self,
-        entries: impl IntoIterator<Item = (K, V)>,
-    ) -> Result<(), FitsError>
+    pub fn set_many<K, V>(&mut self, entries: impl IntoIterator<Item = (K, V)>) -> Result<()>
     where
         K: Into<Key>,
         V: IntoValue,
@@ -497,7 +490,7 @@ impl Header {
     pub fn remove_many<K: Into<Key>>(
         &mut self,
         keys: impl IntoIterator<Item = K>,
-    ) -> Result<usize, FitsError> {
+    ) -> Result<usize> {
         let keys: Vec<Key> = keys.into_iter().map(Into::into).collect();
         for k in &keys {
             self.resolve(k)?;
@@ -531,7 +524,7 @@ impl Header {
 /// The byte length of the header region at the start of `bytes`: cards up to and including
 /// `END`, rounded up to a [`BLOCK_LEN`] multiple. Scans the same way [`Header::parse`] does, so
 /// this always agrees with what parsing would consume.
-fn header_region_len(bytes: &[u8]) -> Result<usize, FitsError> {
+fn header_region_len(bytes: &[u8]) -> Result<usize> {
     for (i, card) in bytes.chunks_exact(CARD_LEN).enumerate() {
         let keyword = String::from_utf8_lossy(&card[..8]).trim().to_string();
         if keyword == "END" {
@@ -551,7 +544,7 @@ fn header_region_len(bytes: &[u8]) -> Result<usize, FitsError> {
 /// Unix the target's file mode is copied onto the temp file before the rename, so a 0600 file
 /// stays 0600 instead of dropping to the umask default. Any failure after the temp file is
 /// created removes it.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FitsError> {
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     // Resolve symlinks so we edit the real file in place; fall back to `path` if it does not
     // yet exist (update_file always reads first, so it does).
     let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -581,7 +574,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FitsError> {
 /// Copy `src`'s file permissions onto `dst`. No-op off Unix, and silently ignores a missing
 /// `src` (a freshly created file has no prior mode to preserve).
 #[cfg(unix)]
-fn copy_mode(src: &Path, dst: &Path) -> Result<(), FitsError> {
+fn copy_mode(src: &Path, dst: &Path) -> Result<()> {
     match fs::metadata(src) {
         Ok(meta) => fs::set_permissions(dst, meta.permissions())?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -591,7 +584,7 @@ fn copy_mode(src: &Path, dst: &Path) -> Result<(), FitsError> {
 }
 
 #[cfg(not(unix))]
-fn copy_mode(_src: &Path, _dst: &Path) -> Result<(), FitsError> {
+fn copy_mode(_src: &Path, _dst: &Path) -> Result<()> {
     Ok(())
 }
 
