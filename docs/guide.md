@@ -234,8 +234,9 @@ header.remove("GAIN").unwrap();
 ```
 
 These calls change only the in-memory `Header`; nothing is written to disk until you
-serialize it with `to_header_bytes` (see [Serialize](#serialize) below) or persist it
-with `update_file`.
+persist it — with `update_file` to edit an existing file in place (the common case), or
+`write_to_file`/`to_header_bytes` to create a new one (see [Serialize](#serialize)
+below).
 
 ## Atomic batches
 
@@ -322,9 +323,7 @@ byte-for-byte identical to the input.
 This crate is header-only: it never owns, inspects, or fabricates pixel data. That
 shapes the two ways real files get written:
 
-- **Creating a new file** — write `to_header_bytes()`, then append your own pixel data
-  after it. The caller owns the data; this crate never invents it.
-- **Editing an existing file** —
+- **Editing an existing file** — the common case —
   [`Header::update_file`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.update_file)
   reads the file, locates the header by scanning for `END`, hands you the parsed header
   to mutate, then writes the new header back followed by everything that came after the
@@ -373,6 +372,32 @@ shapes the two ways real files get written:
   leave a truncated file. It errors with
   [`FitsError::MissingEnd`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.MissingEnd)
   if the file has no `END` card.
+
+- **Creating a new file** — the rarer case where you already have pixel data and are
+  writing it for the first time —
+  [`Header::write_to_file`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.write_to_file)
+  writes the header block followed by your pixel bytes. It creates `path` and errors if
+  it already exists, so it can never clobber an existing file's data — use `update_file`
+  for that:
+
+  ```rust
+  use fits_header::Header;
+
+  let mut header = Header::new();
+  header.set("OBJECT", "M31").unwrap();
+  let pixel_data = [0u8; 4]; // caller-owned data, e.g. from an image buffer
+
+  let path = std::env::temp_dir().join("fits-header-guide-doctest-write_to_file.fits");
+  # std::fs::remove_file(&path).ok();
+  header.write_to_file(&path, &pixel_data).unwrap();
+
+  let bytes = std::fs::read(&path).unwrap();
+  assert_eq!(&bytes[bytes.len() - pixel_data.len()..], &pixel_data);
+
+  // Writing to the same path again errors instead of overwriting it.
+  assert!(header.write_to_file(&path, &pixel_data).is_err());
+  # std::fs::remove_file(&path).ok();
+  ```
 
 ## Next
 

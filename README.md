@@ -3,10 +3,13 @@
 A pure-Rust library for reading and writing the header of a
 [FITS](https://fits.gsfc.nasa.gov/fits_standard.html) file.
 
-- Header-scoped: this crate never owns, inspects, or fabricates pixel data. Creating a
-  file means appending your own data bytes to the header; editing a file means
+- Header-scoped: this crate never owns, inspects, or fabricates pixel data. Editing a
+  file on disk means
   [`Header::update_file`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.update_file),
-  which preserves the existing data unit byte-for-byte.
+  which preserves the existing data unit byte-for-byte; creating a new file means
+  [`Header::write_to_file`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.write_to_file),
+  which writes your own pixel bytes right after the header and errors instead of
+  overwriting an existing path.
 - Pure Rust, no C or system libraries. Builds with the MSVC toolchain.
 - Every card is retained on parse; untouched cards (including long-string runs)
   re-serialize byte-for-byte. Only created or edited cards are re-rendered.
@@ -67,30 +70,27 @@ fn demo(bytes: &[u8]) -> Result<()> {
     // Batch mutations are atomic — all or nothing.
     header.set_many([("FILTER", "Ha"), ("TELESCOP", "EdgeHD 8")])?;
 
-    // Serialize the header block. Untouched cards come back byte-for-byte identical.
-    // Creating a file: append your own pixel data after this — this crate never
-    // fabricates it.
+    // The low-level building block: the header block alone. `update_file` and
+    // `write_to_file` below cover the common cases directly.
     let block: Vec<u8> = header.to_header_bytes();
     Ok(())
 }
 
-// Creating a new file directly, no closure: build a header, serialize it, and write
-// your own bytes — this crate never fabricates pixel data.
-fn create_file(path: &std::path::Path) -> Result<()> {
-    let mut header = Header::new();
-    header.set("OBJECT", "M31")?;
-    let mut file = header.to_header_bytes();
-    file.extend_from_slice(&[0u8; 2880]); // stand-in pixel data
-    std::fs::write(path, file)?;
-    Ok(())
-}
-
-// Editing a file on disk: the data unit (and any later HDUs) survives untouched.
+// Editing a file on disk: the data unit (and any later HDUs) survives untouched. This
+// is the common path — most callers only ever edit an existing file.
 fn edit_in_place(path: &std::path::Path) -> Result<()> {
     Header::update_file(path, |h| {
         h.set("OBJECT", "M31")?;
         Ok(())
     })
+}
+
+// Creating a NEW file: build a header, then hand it your own pixel bytes. Errors if
+// `path` already exists — this crate never fabricates pixel data or clobbers a file.
+fn create_file(path: &std::path::Path) -> Result<()> {
+    let mut header = Header::new();
+    header.set("OBJECT", "M31")?;
+    header.write_to_file(path, &[0u8; 2880]) // stand-in pixel data
 }
 ```
 
@@ -134,16 +134,20 @@ assert_eq!(header.get_all::<String>("HISTORY"), ["flat fielded (master flat v2)"
 - [`Header::read_from_file(path)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.read_from_file)
   — read a header from disk. Parsing stops at `END`, so the data unit is read but never
   interpreted.
-- [`Header::to_header_bytes()`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_header_bytes)
-  — the header block only (cards + `END`, padded to a 2880-byte multiple). Creating a new
-  FITS object: write this, then append your own pixel bytes.
 - [`Header::update_file(path, edit)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.update_file)
-  — edit an existing file in place. Reads the file, locates the header by scanning for
-  `END`, hands you the parsed header to mutate, then writes the new header back followed
-  by everything that came after the original one (data unit, later HDUs) untouched. The
-  write is atomic (temp file + rename). Errors with
+  — the common path: edit an existing file in place. Reads the file, locates the header by
+  scanning for `END`, hands you the parsed header to mutate, then writes the new header
+  back followed by everything that came after the original one (data unit, later HDUs)
+  untouched. The write is atomic (temp file + rename). Errors with
   [`FitsError::MissingEnd`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.MissingEnd)
   if the file has no `END` card.
+- [`Header::write_to_file(path, data)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.write_to_file)
+  — the rarer path: create a **new** file from a header and pixel bytes you already have.
+  Errors instead of overwriting `path` if it already exists; pass `&[]` for a header-only
+  file.
+- [`Header::to_header_bytes()`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_header_bytes)
+  — the lower-level building block behind both: the header block only (cards + `END`,
+  padded to a 2880-byte multiple), for callers who assemble the file bytes themselves.
 
 ## Documentation
 

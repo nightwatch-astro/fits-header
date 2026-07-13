@@ -7,16 +7,19 @@ use crate::value::{FromCard, IntoValue};
 use crate::write;
 use crate::{BLOCK_LEN, CARD_LEN};
 use std::fs;
+use std::io::Write as _;
 use std::path::Path;
 
 /// An ordered FITS header unit: [`Record`]s in appearance order, with strict keyword
 /// access (via [`Key`]) and CRUD.
 ///
 /// A `Header` is an in-memory value. `set`, `append`, `remove`, `set_many`, and
-/// `set_comment` change it in memory only — nothing is written to disk. Persist it either
-/// by serializing [`to_header_bytes`](Self::to_header_bytes) and writing the bytes
-/// yourself (a new file — append your own pixel data), or by calling
-/// [`update_file`](Self::update_file) to edit an existing file's header in place.
+/// `set_comment` change it in memory only — nothing is written to disk. Persist it with
+/// [`update_file`](Self::update_file) to edit an existing file's header in place (the
+/// common case), or [`write_to_file`](Self::write_to_file) to create a new file from a
+/// header you built plus pixel data you already have.
+/// [`to_header_bytes`](Self::to_header_bytes) is the lower-level building block behind
+/// both, for callers who assemble the file bytes themselves.
 ///
 /// Equality is semantic (records compare by content, not by retained bytes).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -174,6 +177,54 @@ impl Header {
         let mut out = header.to_header_bytes();
         out.extend_from_slice(tail);
         write_atomic(path, &out)?;
+        Ok(())
+    }
+
+    /// Create a new FITS file: the serialized header block followed by `data`.
+    ///
+    /// This is the convenience for the rarer case where you already have pixel data and
+    /// are writing it for the first time. It creates `path` and errors if it already
+    /// exists — via [`OpenOptions::create_new`](std::fs::OpenOptions::create_new), which is
+    /// race-free — so this method can never overwrite or corrupt an existing file's
+    /// contents. To edit a file that already exists, use [`update_file`](Self::update_file)
+    /// instead.
+    ///
+    /// `data` is the caller's own pixel bytes, written immediately after the header block;
+    /// pass `&[]` for a header-only file. This crate is header-only and never fabricates
+    /// pixel data itself.
+    ///
+    /// Errors with [`FitsError::Io`] if the write fails, including when `path` already
+    /// exists ([`io::ErrorKind::AlreadyExists`](std::io::ErrorKind::AlreadyExists)).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fits_header::Header;
+    ///
+    /// let mut header = Header::new();
+    /// header.set("OBJECT", "M31").unwrap();
+    ///
+    /// let path = std::env::temp_dir().join("fits-header-doctest-write_to_file.fits");
+    /// # std::fs::remove_file(&path).ok();
+    /// header.write_to_file(&path, &[0u8; 4]).unwrap();
+    ///
+    /// let bytes = std::fs::read(&path).unwrap();
+    /// assert_eq!(&bytes[bytes.len() - 4..], &[0u8; 4], "pixel data survived");
+    /// let back = Header::parse(&bytes).unwrap();
+    /// assert_eq!(back.get_str("OBJECT").unwrap(), Some("M31"));
+    ///
+    /// // Writing to the same path again errors instead of overwriting it.
+    /// assert!(header.write_to_file(&path, &[1u8; 4]).is_err());
+    ///
+    /// std::fs::remove_file(&path).ok();
+    /// ```
+    pub fn write_to_file<P: AsRef<Path>>(&self, path: P, data: &[u8]) -> Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        file.write_all(&self.to_header_bytes())?;
+        file.write_all(data)?;
         Ok(())
     }
 
@@ -516,10 +567,12 @@ impl Header {
 
     /// Serialize the header block only (cards, `END`, padded to a 2880 multiple).
     ///
-    /// This is the direct persist path: serialize a header you built in memory, append
-    /// your own pixel data, and write the bytes yourself — for a new file. Contrast with
-    /// [`update_file`](Self::update_file), which edits an existing file's header while
-    /// preserving its data unit.
+    /// This is the lower-level building block: the bytes alone, for callers who assemble
+    /// the rest of the file themselves. To write a header plus pixel data straight to a
+    /// new file, use [`write_to_file`](Self::write_to_file) instead — it wraps this and
+    /// errors rather than overwriting an existing path.
+    /// [`update_file`](Self::update_file) edits an existing file's header while preserving
+    /// its data unit.
     ///
     /// # Examples
     ///
@@ -529,20 +582,6 @@ impl Header {
     /// h.set("OBJECT", "M31").unwrap();
     /// let bytes = h.to_header_bytes();
     /// assert_eq!(bytes.len() % fits_header::BLOCK_LEN, 0);
-    /// ```
-    ///
-    /// Writing a freshly built header directly to a new file, no closure:
-    ///
-    /// ```
-    /// use fits_header::Header;
-    ///
-    /// let mut h = Header::new();
-    /// h.set("OBJECT", "M31").unwrap();
-    /// let mut file = h.to_header_bytes();          // the header block, padded to 2880
-    /// file.extend_from_slice(&[0u8; 4]);           // append your own pixel data
-    /// let path = std::env::temp_dir().join("fits-header-doctest-write.fits");
-    /// std::fs::write(&path, &file).unwrap();
-    /// # std::fs::remove_file(&path).ok();
     /// ```
     pub fn to_header_bytes(&self) -> Vec<u8> {
         write::to_header_bytes(self)
