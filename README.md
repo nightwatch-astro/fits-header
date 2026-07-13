@@ -84,6 +84,37 @@ See the [guide](https://docs.rs/fits-header/latest/fits_header/guide/index.html)
 longer, task-oriented walkthrough backed by
 [`examples/quickstart.rs`](https://github.com/nightwatch-astro/fits-header/blob/main/examples/quickstart.rs).
 
+## Repeated keywords (HISTORY / COMMENT)
+
+Commentary keywords like `HISTORY` and `COMMENT` repeat.
+[`append`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.append)
+adds an occurrence,
+[`get_all`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.get_all)
+reads every one in order, and an `("HISTORY", n)` key addresses a single
+occurrence to update it in place or remove it.
+
+```rust
+use fits_header::Header;
+
+let mut header = Header::new();
+header.append("HISTORY", "dark subtracted")?;
+header.append("HISTORY", "flat fielded")?;
+assert_eq!(header.count("HISTORY"), 2);
+
+// Read the processing log in order.
+assert_eq!(
+    header.get_all::<String>("HISTORY"),
+    ["dark subtracted", "flat fielded"],
+);
+
+// Update one occurrence in place, then drop another. Commentary cards carry no
+// value, so read them through `get`/`get_all`, not `get_str`.
+header.set(("HISTORY", 1), "flat fielded (master flat v2)")?;
+header.remove(("HISTORY", 0))?;
+assert_eq!(header.get_all::<String>("HISTORY"), ["flat fielded (master flat v2)"]);
+# Ok::<(), fits_header::FitsError>(())
+```
+
 ## Reading and writing real files
 
 - [`Header::read_from_file(path)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.read_from_file)
