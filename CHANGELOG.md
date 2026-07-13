@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/nightwatch-astro/fits-header/compare/v0.3.0...v0.3.1) (2026-07-13)
+
+
+### Miscellaneous Chores
+
+* release 0.3.1 ([74a7f45](https://github.com/nightwatch-astro/fits-header/commit/74a7f45d2affffaa11805c910c6b4a15a8db5f33))
+
 ## [0.3.0](https://github.com/nightwatch-astro/fits-header/compare/v0.2.0...v0.3.0) (2026-07-13)
 
 
