@@ -73,13 +73,15 @@ fn main() -> Result<()> {
     assert_eq!(block.len() % fits_header::BLOCK_LEN, 0);
 
     // --- Create a new file from scratch ---
-    // This crate is header-only: it never fabricates pixel data. Append your own bytes
-    // after the header block.
+    // This crate is header-only: it never fabricates pixel data — write_to_file takes
+    // your own bytes and writes them right after the header. It creates the file and
+    // errors instead of overwriting an existing path.
     let pixel_data = vec![0u8; 1024]; // caller-owned data, e.g. from an image buffer
-    let mut file_bytes = header.to_header_bytes();
-    file_bytes.extend_from_slice(&pixel_data);
     let path = std::env::temp_dir().join("fits-header-quickstart.fits");
-    std::fs::write(&path, &file_bytes).expect("write new file");
+    let _ = std::fs::remove_file(&path); // in case a previous run was interrupted
+    header
+        .write_to_file(&path, &pixel_data)
+        .expect("write new file");
 
     // --- Edit an existing file in place ---
     // update_file reads the file, hands you the header to mutate, and splices the new
