@@ -1,5 +1,9 @@
 # fits-header
 
+[![CI](https://github.com/nightwatch-astro/fits-header/actions/workflows/ci.yml/badge.svg)](https://github.com/nightwatch-astro/fits-header/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/fits-header.svg)](https://crates.io/crates/fits-header)
+[![docs.rs](https://img.shields.io/docsrs/fits-header)](https://docs.rs/fits-header)
+
 A pure-Rust library for reading and writing the header of a
 [FITS](https://fits.gsfc.nasa.gov/fits_standard.html) file.
 
