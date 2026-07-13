@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/nightwatch-astro/fits-header/compare/v0.3.3...v0.3.4) (2026-07-13)
+
+
+### Documentation
+
+* add status badges ([bf24f52](https://github.com/nightwatch-astro/fits-header/commit/bf24f52b246e9c26695964e9c1a857fee7893727))
+
 ## [0.3.3](https://github.com/nightwatch-astro/fits-header/compare/v0.3.2...v0.3.3) (2026-07-13)
 
 
