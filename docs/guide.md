@@ -9,7 +9,10 @@ which packages the same steps into one runnable file — run it yourself with:
 cargo run --example quickstart
 ```
 
-Full API reference: [docs.rs/fits-header](https://docs.rs/fits-header/latest/fits_header/).
+This page also renders at [`fits_header::guide`](https://docs.rs/fits-header/latest/fits_header/guide/index.html);
+every code block below compiles and runs as a doctest, so the guide cannot drift from the
+API. Each block rebuilds the fixture from scratch (hidden lines in the rendered doctest) so
+it stands alone. Full API reference: [docs.rs/fits-header](https://docs.rs/fits-header/latest/fits_header/).
 
 ## The fixture
 
@@ -31,6 +34,7 @@ const SAMPLE_CARDS: &[&str] = &[
     "TELESCOP= 'EdgeHD 8'           / telescope",
     "HISTORY dark subtracted",
 ];
+# assert_eq!(SAMPLE_CARDS.len(), 12);
 ```
 
 Pack it into a valid header unit —
@@ -38,10 +42,26 @@ Pack it into a valid header unit —
 cards, an `END` card, padded to a
 [`BLOCK_LEN`](https://docs.rs/fits-header/latest/fits_header/constant.BLOCK_LEN.html)
 multiple — and
-[`parse`](https://docs.rs/fits-header/latest/fits_header/fn.parse.html) it into a
-[`Header`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html):
+[`Header::parse`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.parse)
+it into a [`Header`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html):
 
 ```rust
+use fits_header::Header;
+
+# const SAMPLE_CARDS: &[&str] = &[
+#     "SIMPLE  =                    T / conforms to FITS standard",
+#     "BITPIX  =                  -32 / IEEE single-precision float",
+#     "NAXIS   =                    2 / number of data axes",
+#     "NAXIS1  =                 1024 / axis 1 length",
+#     "NAXIS2  =                 1024 / axis 2 length",
+#     "OBJECT  = 'M31     '           / target name",
+#     "EXPTIME =                120.0 / exposure time in seconds",
+#     "DATE-OBS= '2026-07-11T22:15:03' / UTC start of exposure",
+#     "GAIN    =                  1.0 / e-/ADU",
+#     "FILTER  = 'Ha      '           / filter name",
+#     "TELESCOP= 'EdgeHD 8'           / telescope",
+#     "HISTORY dark subtracted",
+# ];
 let mut bytes = Vec::new();
 for card in SAMPLE_CARDS.iter().chain(["END"].iter()) {
     let mut c = card.as_bytes().to_vec();
@@ -53,6 +73,7 @@ while bytes.len() % fits_header::BLOCK_LEN != 0 {
 }
 
 let mut header: Header = Header::parse(&bytes).unwrap();
+# assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
 ```
 
 The same bytes read from disk instead of memory:
@@ -71,8 +92,35 @@ shortcut,
 [`Header::get_str`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.get_str):
 
 ```rust
-let object: Option<&str> = header.get_str("OBJECT")?;
-let exptime: Option<f64> = header.get("EXPTIME")?;
+# fn sample_header() -> fits_header::Header {
+#     const SAMPLE_CARDS: &[&str] = &[
+#         "SIMPLE  =                    T / conforms to FITS standard",
+#         "BITPIX  =                  -32 / IEEE single-precision float",
+#         "NAXIS   =                    2 / number of data axes",
+#         "NAXIS1  =                 1024 / axis 1 length",
+#         "NAXIS2  =                 1024 / axis 2 length",
+#         "OBJECT  = 'M31     '           / target name",
+#         "EXPTIME =                120.0 / exposure time in seconds",
+#         "DATE-OBS= '2026-07-11T22:15:03' / UTC start of exposure",
+#         "GAIN    =                  1.0 / e-/ADU",
+#         "FILTER  = 'Ha      '           / filter name",
+#         "TELESCOP= 'EdgeHD 8'           / telescope",
+#         "HISTORY dark subtracted",
+#     ];
+#     let mut bytes = Vec::new();
+#     for card in SAMPLE_CARDS.iter().chain(["END"].iter()) {
+#         let mut c = card.as_bytes().to_vec();
+#         c.resize(fits_header::CARD_LEN, b' ');
+#         bytes.extend(c);
+#     }
+#     while bytes.len() % fits_header::BLOCK_LEN != 0 {
+#         bytes.push(b' ');
+#     }
+#     fits_header::Header::parse(&bytes).unwrap()
+# }
+# let header = sample_header();
+let object: Option<&str> = header.get_str("OBJECT").unwrap();
+let exptime: Option<f64> = header.get("EXPTIME").unwrap();
 assert_eq!(object, Some("M31"));
 assert_eq!(exptime, Some(120.0));
 ```
@@ -87,6 +135,33 @@ and read them all with
 [`Header::get_all`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.get_all):
 
 ```rust
+# fn sample_header() -> fits_header::Header {
+#     const SAMPLE_CARDS: &[&str] = &[
+#         "SIMPLE  =                    T / conforms to FITS standard",
+#         "BITPIX  =                  -32 / IEEE single-precision float",
+#         "NAXIS   =                    2 / number of data axes",
+#         "NAXIS1  =                 1024 / axis 1 length",
+#         "NAXIS2  =                 1024 / axis 2 length",
+#         "OBJECT  = 'M31     '           / target name",
+#         "EXPTIME =                120.0 / exposure time in seconds",
+#         "DATE-OBS= '2026-07-11T22:15:03' / UTC start of exposure",
+#         "GAIN    =                  1.0 / e-/ADU",
+#         "FILTER  = 'Ha      '           / filter name",
+#         "TELESCOP= 'EdgeHD 8'           / telescope",
+#         "HISTORY dark subtracted",
+#     ];
+#     let mut bytes = Vec::new();
+#     for card in SAMPLE_CARDS.iter().chain(["END"].iter()) {
+#         let mut c = card.as_bytes().to_vec();
+#         c.resize(fits_header::CARD_LEN, b' ');
+#         bytes.extend(c);
+#     }
+#     while bytes.len() % fits_header::BLOCK_LEN != 0 {
+#         bytes.push(b' ');
+#     }
+#     fits_header::Header::parse(&bytes).unwrap()
+# }
+# let header = sample_header();
 assert_eq!(header.count("HISTORY"), 1);
 assert_eq!(
     header.get_all::<String>("HISTORY"),
@@ -121,10 +196,39 @@ and
 round out single-card CRUD:
 
 ```rust
-header.set("OBJECT", "NGC 7000")?; // updates in place
-header.append("HISTORY", "flat fielded")?; // HISTORY repeats, so this adds a second card
-header.set_comment("EXPTIME", "seconds, revised")?;
-header.remove("GAIN")?;
+# fn sample_header() -> fits_header::Header {
+#     const SAMPLE_CARDS: &[&str] = &[
+#         "SIMPLE  =                    T / conforms to FITS standard",
+#         "BITPIX  =                  -32 / IEEE single-precision float",
+#         "NAXIS   =                    2 / number of data axes",
+#         "NAXIS1  =                 1024 / axis 1 length",
+#         "NAXIS2  =                 1024 / axis 2 length",
+#         "OBJECT  = 'M31     '           / target name",
+#         "EXPTIME =                120.0 / exposure time in seconds",
+#         "DATE-OBS= '2026-07-11T22:15:03' / UTC start of exposure",
+#         "GAIN    =                  1.0 / e-/ADU",
+#         "FILTER  = 'Ha      '           / filter name",
+#         "TELESCOP= 'EdgeHD 8'           / telescope",
+#         "HISTORY dark subtracted",
+#     ];
+#     let mut bytes = Vec::new();
+#     for card in SAMPLE_CARDS.iter().chain(["END"].iter()) {
+#         let mut c = card.as_bytes().to_vec();
+#         c.resize(fits_header::CARD_LEN, b' ');
+#         bytes.extend(c);
+#     }
+#     while bytes.len() % fits_header::BLOCK_LEN != 0 {
+#         bytes.push(b' ');
+#     }
+#     fits_header::Header::parse(&bytes).unwrap()
+# }
+# let mut header = sample_header();
+header.set("OBJECT", "NGC 7000").unwrap(); // updates in place
+header.append("HISTORY", "flat fielded").unwrap(); // HISTORY repeats, so this adds a second card
+header.set_comment("EXPTIME", "seconds, revised").unwrap();
+header.remove("GAIN").unwrap();
+# assert_eq!(header.get_str("OBJECT").unwrap(), Some("NGC 7000"));
+# assert_eq!(header.count("HISTORY"), 2);
 ```
 
 ## Atomic batches
@@ -136,7 +240,37 @@ validate every entry before applying any of them — a rejected batch leaves the
 untouched:
 
 ```rust
-header.set_many([("FILTER", "OIII"), ("TELESCOP", "EdgeHD 11")])?;
+# fn sample_header() -> fits_header::Header {
+#     const SAMPLE_CARDS: &[&str] = &[
+#         "SIMPLE  =                    T / conforms to FITS standard",
+#         "BITPIX  =                  -32 / IEEE single-precision float",
+#         "NAXIS   =                    2 / number of data axes",
+#         "NAXIS1  =                 1024 / axis 1 length",
+#         "NAXIS2  =                 1024 / axis 2 length",
+#         "OBJECT  = 'M31     '           / target name",
+#         "EXPTIME =                120.0 / exposure time in seconds",
+#         "DATE-OBS= '2026-07-11T22:15:03' / UTC start of exposure",
+#         "GAIN    =                  1.0 / e-/ADU",
+#         "FILTER  = 'Ha      '           / filter name",
+#         "TELESCOP= 'EdgeHD 8'           / telescope",
+#         "HISTORY dark subtracted",
+#     ];
+#     let mut bytes = Vec::new();
+#     for card in SAMPLE_CARDS.iter().chain(["END"].iter()) {
+#         let mut c = card.as_bytes().to_vec();
+#         c.resize(fits_header::CARD_LEN, b' ');
+#         bytes.extend(c);
+#     }
+#     while bytes.len() % fits_header::BLOCK_LEN != 0 {
+#         bytes.push(b' ');
+#     }
+#     fits_header::Header::parse(&bytes).unwrap()
+# }
+# let mut header = sample_header();
+header
+    .set_many([("FILTER", "OIII"), ("TELESCOP", "EdgeHD 11")])
+    .unwrap();
+# assert_eq!(header.get_str("FILTER").unwrap(), Some("OIII"));
 ```
 
 ## Serialize
@@ -145,6 +279,33 @@ header.set_many([("FILTER", "OIII"), ("TELESCOP", "EdgeHD 11")])?;
 writes the header block alone — cards plus `END`, padded to a `BLOCK_LEN` multiple:
 
 ```rust
+# fn sample_header() -> fits_header::Header {
+#     const SAMPLE_CARDS: &[&str] = &[
+#         "SIMPLE  =                    T / conforms to FITS standard",
+#         "BITPIX  =                  -32 / IEEE single-precision float",
+#         "NAXIS   =                    2 / number of data axes",
+#         "NAXIS1  =                 1024 / axis 1 length",
+#         "NAXIS2  =                 1024 / axis 2 length",
+#         "OBJECT  = 'M31     '           / target name",
+#         "EXPTIME =                120.0 / exposure time in seconds",
+#         "DATE-OBS= '2026-07-11T22:15:03' / UTC start of exposure",
+#         "GAIN    =                  1.0 / e-/ADU",
+#         "FILTER  = 'Ha      '           / filter name",
+#         "TELESCOP= 'EdgeHD 8'           / telescope",
+#         "HISTORY dark subtracted",
+#     ];
+#     let mut bytes = Vec::new();
+#     for card in SAMPLE_CARDS.iter().chain(["END"].iter()) {
+#         let mut c = card.as_bytes().to_vec();
+#         c.resize(fits_header::CARD_LEN, b' ');
+#         bytes.extend(c);
+#     }
+#     while bytes.len() % fits_header::BLOCK_LEN != 0 {
+#         bytes.push(b' ');
+#     }
+#     fits_header::Header::parse(&bytes).unwrap()
+# }
+# let header = sample_header();
 let block: Vec<u8> = header.to_header_bytes();
 assert_eq!(block.len() % fits_header::BLOCK_LEN, 0);
 ```
@@ -164,10 +325,42 @@ shapes the two ways real files get written:
   original one (the data unit, and any later HDUs), untouched:
 
   ```rust
+  use fits_header::Header;
+
+  # const SAMPLE_CARDS: &[&str] = &[
+  #     "SIMPLE  =                    T / conforms to FITS standard",
+  #     "BITPIX  =                  -32 / IEEE single-precision float",
+  #     "NAXIS   =                    2 / number of data axes",
+  #     "NAXIS1  =                 1024 / axis 1 length",
+  #     "NAXIS2  =                 1024 / axis 2 length",
+  #     "OBJECT  = 'M31     '           / target name",
+  #     "EXPTIME =                120.0 / exposure time in seconds",
+  #     "DATE-OBS= '2026-07-11T22:15:03' / UTC start of exposure",
+  #     "GAIN    =                  1.0 / e-/ADU",
+  #     "FILTER  = 'Ha      '           / filter name",
+  #     "TELESCOP= 'EdgeHD 8'           / telescope",
+  #     "HISTORY dark subtracted",
+  # ];
+  # let mut bytes = Vec::new();
+  # for card in SAMPLE_CARDS.iter().chain(["END"].iter()) {
+  #     let mut c = card.as_bytes().to_vec();
+  #     c.resize(fits_header::CARD_LEN, b' ');
+  #     bytes.extend(c);
+  # }
+  # while bytes.len() % fits_header::BLOCK_LEN != 0 {
+  #     bytes.push(b' ');
+  # }
+  # bytes.extend_from_slice(&[0u8; 4]); // stand-in pixel data
+  # let path = std::env::temp_dir().join("fits-header-guide-doctest-update_file.fits");
+  # std::fs::write(&path, &bytes).unwrap();
   Header::update_file(&path, |h| {
       h.set("OBJECT", "NGC 7000")?;
       Ok(())
-  })?;
+  })
+  .unwrap();
+  # let header = Header::read_from_file(&path).unwrap();
+  # assert_eq!(header.get_str("OBJECT").unwrap(), Some("NGC 7000"));
+  # std::fs::remove_file(&path).ok();
   ```
 
   The write is atomic (temp file in the same directory, then rename), so a crash cannot
@@ -177,7 +370,8 @@ shapes the two ways real files get written:
 
 ## Next
 
-- [README](../README.md) for the feature summary and install instructions.
+- [README](https://github.com/nightwatch-astro/fits-header/blob/main/README.md) for the
+  feature summary and install instructions.
 - [docs.rs/fits-header](https://docs.rs/fits-header/latest/fits_header/) for the full
   API reference, including number-formatting wrappers
   ([`Literal`](https://docs.rs/fits-header/latest/fits_header/struct.Literal.html),

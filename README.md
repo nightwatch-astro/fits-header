@@ -80,8 +80,9 @@ fn edit_in_place(path: &std::path::Path) -> Result<()> {
 }
 ```
 
-See [`docs/guide.md`](docs/guide.md) for a longer, task-oriented walkthrough backed by
-[`examples/quickstart.rs`](examples/quickstart.rs).
+See the [guide](https://docs.rs/fits-header/latest/fits_header/guide/index.html) for a
+longer, task-oriented walkthrough backed by
+[`examples/quickstart.rs`](https://github.com/nightwatch-astro/fits-header/blob/main/examples/quickstart.rs).
 
 ## Reading and writing real files
 
@@ -101,7 +102,7 @@ See [`docs/guide.md`](docs/guide.md) for a longer, task-oriented walkthrough bac
 
 ## Documentation
 
-- [`docs/guide.md`](docs/guide.md) — task-oriented quickstart.
+- [guide](https://docs.rs/fits-header/latest/fits_header/guide/index.html) — task-oriented quickstart.
 - [docs.rs/fits-header](https://docs.rs/fits-header) — full API reference, generated
   from the crate's rustdoc. Every public item is documented; the examples are compiled
   and run as part of the test suite. Build it locally with
@@ -124,4 +125,4 @@ just doc
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Licensed under the [Apache License, Version 2.0](https://github.com/nightwatch-astro/fits-header/blob/main/LICENSE).
