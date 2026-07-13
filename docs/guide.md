@@ -225,10 +225,12 @@ round out single-card CRUD:
 # let mut header = sample_header();
 header.set("OBJECT", "NGC 7000").unwrap(); // updates in place
 header.append("HISTORY", "flat fielded").unwrap(); // HISTORY repeats, so this adds a second card
+header.set(("HISTORY", 0), "dark subtracted (master dark v2)").unwrap(); // update one occurrence in place
 header.set_comment("EXPTIME", "seconds, revised").unwrap();
 header.remove("GAIN").unwrap();
 # assert_eq!(header.get_str("OBJECT").unwrap(), Some("NGC 7000"));
 # assert_eq!(header.count("HISTORY"), 2);
+# assert_eq!(header.get_all::<String>("HISTORY"), ["dark subtracted (master dark v2)", "flat fielded"]);
 ```
 
 ## Atomic batches
