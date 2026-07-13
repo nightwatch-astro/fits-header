@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/nightwatch-astro/fits-header/compare/v0.3.1...v0.3.2) (2026-07-13)
+
+
+### Documentation
+
+* show updating and removing repeated HISTORY/COMMENT cards ([a30aff6](https://github.com/nightwatch-astro/fits-header/commit/a30aff63df0e0338e209e3ca617256b532b9758d))
+
 ## [0.3.1](https://github.com/nightwatch-astro/fits-header/compare/v0.3.0...v0.3.1) (2026-07-13)
 
 
