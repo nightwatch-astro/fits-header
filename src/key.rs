@@ -27,6 +27,16 @@ pub enum Key {
 
 impl Key {
     /// The keyword this key refers to.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Key;
+    /// let bare: Key = "GAIN".into();
+    /// let occ: Key = ("GAIN", 1).into();
+    /// assert_eq!(bare.name(), "GAIN");
+    /// assert_eq!(occ.name(), "GAIN");
+    /// ```
     pub fn name(&self) -> &str {
         match self {
             Key::Name(n) | Key::Occurrence(n, _) => n,
@@ -34,6 +44,16 @@ impl Key {
     }
 
     /// The selected occurrence index, if any.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Key;
+    /// let bare: Key = "GAIN".into();
+    /// let occ: Key = ("GAIN", 1).into();
+    /// assert_eq!(bare.occurrence(), None);
+    /// assert_eq!(occ.occurrence(), Some(1));
+    /// ```
     pub fn occurrence(&self) -> Option<usize> {
         match self {
             Key::Name(_) => None,

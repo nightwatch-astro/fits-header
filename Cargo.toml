@@ -10,8 +10,9 @@ documentation = "https://docs.rs/fits-header"
 readme = "README.md"
 keywords = ["fits", "astronomy", "header", "parser", "metadata"]
 categories = ["parser-implementations", "science", "encoding"]
-# The published package carries only the crate itself — no repo-internal files.
-include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
+# The published package carries the crate itself plus docs/guide.md, which lib.rs
+# renders via include_str! — omitting it would break the published sdist's build.
+include = ["src/**", "docs/**", "Cargo.toml", "README.md", "LICENSE"]
 
 [features]
 # Off by default. Derives Serialize/Deserialize on the public types so a header can
