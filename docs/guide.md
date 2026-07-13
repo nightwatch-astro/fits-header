@@ -1,9 +1,9 @@
 # Quickstart
 
-A task-oriented walkthrough of [`fits-header`](https://docs.rs/fits-header). Every step
-below is the code in
-[`examples/quickstart.rs`](https://github.com/nightwatch-astro/fits-header/blob/main/examples/quickstart.rs)
-— run it yourself with:
+A task-oriented walkthrough of [`fits-header`](https://docs.rs/fits-header). The snippets
+below are adapted from
+[`examples/quickstart.rs`](https://github.com/nightwatch-astro/fits-header/blob/main/examples/quickstart.rs),
+which packages the same steps into one runnable file — run it yourself with:
 
 ```sh
 cargo run --example quickstart
@@ -89,12 +89,20 @@ assert_eq!(
 );
 ```
 
-A non-repeatable keyword is different: access by bare name is strict. If a keyword like
-`GAIN` occurred more than once, `header.get::<f64>("GAIN")` would return
+Value cards are read by bare name, and that access is strict: nothing stops a keyword
+like `GAIN` from appearing more than once, so if it does, `header.get::<f64>("GAIN")`
+returns
 [`FitsError::AmbiguousKeyword`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.AmbiguousKeyword)
 instead of guessing. Select one occurrence with a
 [`Key`](https://docs.rs/fits-header/latest/fits_header/enum.Key.html) pair, e.g.
 `header.get::<f64>(("GAIN", 1))` for the second occurrence.
+
+`HIERARCH` cards and other non-standard or malformed cards parse as opaque
+[`RecordKind::Opaque`](https://docs.rs/fits-header/latest/fits_header/enum.RecordKind.html#variant.Opaque)
+records. They pass through unmodified on re-serialization, but they carry no addressable
+keyword — `get`, `set`, and `remove` never see them, and
+[`Header::count`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.count)
+reports them as absent.
 
 ## Mutate
 
@@ -141,9 +149,11 @@ assert_eq!(block.len() % fits_header::BLOCK_LEN, 0);
 byte-for-byte identical to the input.
 
 [`Header::to_bytes`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_bytes)
-writes a standalone FITS object instead: missing structural cards are synthesized from a
-[`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html),
-and the declared data segment is zero-filled (capped at
+writes a standalone FITS object instead. When the header has no `SIMPLE` card, a full
+`SIMPLE`/`BITPIX`/`NAXIS`/`NAXIS1`/`NAXIS2` set is synthesized from a
+[`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html);
+this fixture already carries `SIMPLE`, so it is written as-is and the hints go unused.
+The declared data segment is zero-filled (capped at
 [`MAX_ZERO_FILL`](https://docs.rs/fits-header/latest/fits_header/constant.MAX_ZERO_FILL.html),
 returning
 [`FitsError::DataTooLarge`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.DataTooLarge)

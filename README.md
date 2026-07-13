@@ -21,9 +21,21 @@ A pure-Rust library for reading and writing the header of a
 - Long strings use the `CONTINUE` convention on read and write (with `LONGSTRN`).
 - The API is an ordered
   [`Header`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html) of
-  `(keyword, value, comment)`
-  [`Record`](https://docs.rs/fits-header/latest/fits_header/struct.Record.html)s; it
-  contains no application types.
+  [`Record`](https://docs.rs/fits-header/latest/fits_header/struct.Record.html)s — value
+  cards, repeatable commentary cards, and opaque pass-through cards; it contains no
+  application types.
+- `HIERARCH` and other non-standard or malformed cards parse as
+  [`RecordKind::Opaque`](https://docs.rs/fits-header/latest/fits_header/enum.RecordKind.html#variant.Opaque)
+  records: preserved byte-for-byte on re-serialization, but not addressable by keyword
+  (`get`/`set`/`remove` never see them).
+
+## Install
+
+```sh
+cargo add fits-header
+# opt into serde derives on the public types:
+cargo add fits-header --features serde
+```
 
 ## Usage
 
@@ -64,10 +76,11 @@ See [`docs/guide.md`](docs/guide.md) for a longer, task-oriented walkthrough bac
   — the header block only (cards + `END`, padded to a 2880-byte multiple). The primary
   path when editing a real file: splice it onto the file's data.
 - [`to_bytes(&hints)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_bytes)
-  — a standalone FITS object. Missing `SIMPLE`/`BITPIX`/`NAXIS*` cards are synthesized
-  from the
-  [`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html),
-  and the declared data segment is zero-filled. Data larger than
+  — a standalone FITS object. When the header has no `SIMPLE` card, a full
+  `SIMPLE`/`BITPIX`/`NAXIS`/`NAXIS1`/`NAXIS2` set is synthesized from the
+  [`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html);
+  a header that already carries `SIMPLE` is written as-is (missing `BITPIX`/`NAXIS*` are
+  not back-filled). The declared data segment is zero-filled. Data larger than
   [`MAX_ZERO_FILL`](https://docs.rs/fits-header/latest/fits_header/constant.MAX_ZERO_FILL.html)
   (1 GiB) returns
   [`FitsError::DataTooLarge`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.DataTooLarge)

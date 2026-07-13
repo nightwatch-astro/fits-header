@@ -391,8 +391,10 @@ impl Header {
         write::to_header_bytes(self)
     }
 
-    /// Serialize a standalone FITS object (header + a minimal zero data block). Mandatory
-    /// structural cards are synthesized only when absent; `structural` is a fallback.
+    /// Serialize a standalone FITS object (header + a minimal zero data block). When the header
+    /// has no `SIMPLE` card, a full `SIMPLE`/`BITPIX`/`NAXIS`/`NAXIS1`/`NAXIS2` set is
+    /// synthesized from `structural`; a header that already carries `SIMPLE` is written
+    /// unchanged (missing `BITPIX`/`NAXIS*` are not back-filled).
     ///
     /// Errors with [`FitsError::DataTooLarge`] when the declared data segment exceeds
     /// [`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL) — for real-file edits, serialize with
