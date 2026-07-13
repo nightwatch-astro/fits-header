@@ -6,7 +6,8 @@ use crate::record::{is_commentary_keyword, validate_keyword, validate_keyword_ra
 use crate::value::{FromCard, IntoValue};
 use crate::write::{self, StructuralHints};
 
-/// An ordered FITS header unit: records in appearance order, with strict keyword access and CRUD.
+/// An ordered FITS header unit: [`Record`]s in appearance order, with strict keyword
+/// access (via [`Key`]) and CRUD.
 ///
 /// Equality is semantic (records compare by content, not by retained bytes).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -17,6 +18,14 @@ pub struct Header {
 
 impl Header {
     /// An empty header.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let h = Header::new();
+    /// assert_eq!(h.count("OBJECT"), 0);
+    /// ```
     pub fn new() -> Self {
         Header::default()
     }
@@ -27,16 +36,47 @@ impl Header {
     }
 
     /// The records in order (read-only escape hatch).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// assert_eq!(h.cards()[0].keyword(), Some("OBJECT"));
+    /// ```
     pub fn cards(&self) -> &[Record] {
         &self.records
     }
 
     /// Iterate the records in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// let names: Vec<&str> = h.iter().filter_map(|r| r.keyword()).collect();
+    /// assert_eq!(names, vec!["OBJECT", "EXPTIME"]);
+    /// ```
     pub fn iter(&self) -> impl Iterator<Item = &Record> {
         self.records.iter()
     }
 
     /// How many records carry this keyword.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.append("HISTORY", "dark subtracted").unwrap();
+    /// h.append("HISTORY", "flat fielded").unwrap();
+    /// assert_eq!(h.count("HISTORY"), 2);
+    /// assert_eq!(h.count("OBJECT"), 0);
+    /// ```
     pub fn count(&self, name: &str) -> usize {
         self.records
             .iter()
@@ -86,13 +126,38 @@ impl Header {
     }
 
     /// Borrow a keyword's string value (`Str` content, non-empty); `None` for empty or a literal.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// h.set("EXPTIME", 120.0).unwrap(); // a Literal, not Str content
+    /// assert_eq!(h.get_str("OBJECT").unwrap(), Some("M31"));
+    /// assert_eq!(h.get_str("EXPTIME").unwrap(), None);
+    /// ```
     pub fn get_str(&self, key: impl Into<Key>) -> Result<Option<&str>, FitsError> {
         Ok(self
             .resolve(&key.into())?
             .and_then(|i| self.records[i].str_content()))
     }
 
-    /// Every value for a keyword, in order.
+    /// Every value for a keyword, in order. Unlike [`get`](Self::get), never errors on a
+    /// duplicated keyword — that is the point of calling it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.append("HISTORY", "dark subtracted").unwrap();
+    /// h.append("HISTORY", "flat fielded").unwrap();
+    /// assert_eq!(
+    ///     h.get_all::<String>("HISTORY"),
+    ///     vec!["dark subtracted".to_string(), "flat fielded".to_string()]
+    /// );
+    /// ```
     pub fn get_all<T: FromCard>(&self, name: &str) -> Vec<T> {
         self.records
             .iter()
@@ -159,6 +224,15 @@ impl Header {
     }
 
     /// Like [`set`](Self::set) but accepts any ≤8-char printable-ASCII keyword (vendor escape hatch).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set_raw("pi.name", "Jane Doe").unwrap(); // lowercase, not FITS-standard
+    /// assert_eq!(h.get_str("pi.name").unwrap(), Some("Jane Doe"));
+    /// ```
     pub fn set_raw(&mut self, keyword: &str, value: impl IntoValue) -> Result<(), FitsError> {
         self.set_inner(Key::Name(keyword.to_string()), value.into_value(), true)
     }
@@ -183,6 +257,16 @@ impl Header {
 
     /// Set or replace the addressed value card's inline comment. No-op if the keyword is absent
     /// or not a value card.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// h.set_comment("EXPTIME", "seconds").unwrap();
+    /// assert_eq!(h.cards()[0].comment(), Some("seconds"));
+    /// ```
     pub fn set_comment(
         &mut self,
         key: impl Into<Key>,
@@ -263,6 +347,17 @@ impl Header {
     }
 
     /// Remove several keys atomically (validation only guards ambiguity). Returns the count removed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// assert_eq!(h.remove_many(["OBJECT", "MISSING"]).unwrap(), 1);
+    /// assert_eq!(h.count("OBJECT"), 0);
+    /// ```
     pub fn remove_many<K: Into<Key>>(
         &mut self,
         keys: impl IntoIterator<Item = K>,

@@ -7,14 +7,23 @@ A pure-Rust library for reading and writing the header of a
 - Every card is retained on parse; untouched cards (including long-string runs)
   re-serialize byte-for-byte. Only created or edited cards are re-rendered.
 - Keyword access is strict: a bare name addresses the sole occurrence of a keyword and
-  errors when it is duplicated; `("NAME", n)` selects the n-th occurrence.
-- Create, read, update, and delete single or multiple keywords; batch mutations are
-  atomic (all or nothing).
-- Typed reads and writes: `get::<T>` covers strings, numbers, booleans, and date/times;
-  `Literal`/`Fixed`/`Sci` wrappers control number formatting on write.
+  errors when it is duplicated; `("NAME", n)` selects the n-th occurrence — see
+  [`Key`](https://docs.rs/fits-header/latest/fits_header/enum.Key.html).
+- Create, read, update, and delete single or multiple keywords; batch mutations
+  ([`set_many`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.set_many),
+  [`remove_many`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.remove_many))
+  are atomic (all or nothing).
+- Typed reads and writes:
+  [`get::<T>`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.get)
+  covers strings, numbers, booleans, and date/times;
+  [`Literal`](https://docs.rs/fits-header/latest/fits_header/struct.Literal.html)/[`Fixed`](https://docs.rs/fits-header/latest/fits_header/struct.Fixed.html)/[`Sci`](https://docs.rs/fits-header/latest/fits_header/struct.Sci.html)
+  wrappers control number formatting on write.
 - Long strings use the `CONTINUE` convention on read and write (with `LONGSTRN`).
-- The API is an ordered header of `(keyword, value, comment)` cards; it contains no
-  application types.
+- The API is an ordered
+  [`Header`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html) of
+  `(keyword, value, comment)`
+  [`Record`](https://docs.rs/fits-header/latest/fits_header/struct.Record.html)s; it
+  contains no application types.
 
 ## Usage
 
@@ -46,21 +55,31 @@ fn demo(bytes: &[u8]) -> Result<(), FitsError> {
 }
 ```
 
+See [`docs/guide.md`](docs/guide.md) for a longer, task-oriented walkthrough backed by
+[`examples/quickstart.rs`](examples/quickstart.rs).
+
 ## Serialization outputs
 
-- `to_header_bytes()` — the header block only (cards + `END`, padded to a 2880-byte
-  multiple). The primary path when editing a real file: splice it onto the file's data.
-- `to_bytes(&hints)` — a standalone FITS object. Missing `SIMPLE`/`BITPIX`/`NAXIS*`
-  cards are synthesized from the hints, and the declared data segment is zero-filled.
-  Data larger than `MAX_ZERO_FILL` (1 GiB) returns `FitsError::DataTooLarge` instead of
-  allocating.
+- [`to_header_bytes()`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_header_bytes)
+  — the header block only (cards + `END`, padded to a 2880-byte multiple). The primary
+  path when editing a real file: splice it onto the file's data.
+- [`to_bytes(&hints)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_bytes)
+  — a standalone FITS object. Missing `SIMPLE`/`BITPIX`/`NAXIS*` cards are synthesized
+  from the
+  [`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html),
+  and the declared data segment is zero-filled. Data larger than
+  [`MAX_ZERO_FILL`](https://docs.rs/fits-header/latest/fits_header/constant.MAX_ZERO_FILL.html)
+  (1 GiB) returns
+  [`FitsError::DataTooLarge`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.DataTooLarge)
+  instead of allocating.
 
 ## Documentation
 
-API documentation is generated from the crate's rustdoc and published at
-[docs.rs/fits-header](https://docs.rs/fits-header). Every public item is documented;
-the examples are compiled and run as part of the test suite. Build the docs locally
-with `cargo doc --no-deps --all-features --open`.
+- [`docs/guide.md`](docs/guide.md) — task-oriented quickstart.
+- [docs.rs/fits-header](https://docs.rs/fits-header) — full API reference, generated
+  from the crate's rustdoc. Every public item is documented; the examples are compiled
+  and run as part of the test suite. Build it locally with
+  `cargo doc --no-deps --all-features --open`.
 
 ## Features
 

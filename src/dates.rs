@@ -66,6 +66,13 @@ pub fn parse_datetime(s: &str) -> Option<PrimitiveDateTime> {
 
 /// Format a date/time back to the FITS civil form (`YYYY-MM-DDThh:mm:ss[.fff]`), dropping a zero
 /// sub-second part.
+///
+/// # Examples
+///
+/// ```
+/// let dt = fits_header::parse_datetime("2026-07-11T22:15:03.5").unwrap();
+/// assert_eq!(fits_header::format_datetime(&dt), "2026-07-11T22:15:03.5");
+/// ```
 pub fn format_datetime(dt: &PrimitiveDateTime) -> String {
     let (d, t) = (dt.date(), dt.time());
     let base = format!(

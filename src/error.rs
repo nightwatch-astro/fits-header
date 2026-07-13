@@ -5,6 +5,19 @@
 ///
 /// Parsing is lenient and does not produce these; header-only serialization
 /// ([`Header::to_header_bytes`](crate::Header::to_header_bytes)) is infallible.
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{FitsError, Header};
+/// let mut h = Header::new();
+/// h.append("GAIN", 1).unwrap();
+/// h.append("GAIN", 2).unwrap();
+/// assert!(matches!(
+///     h.get::<i64>("GAIN"),
+///     Err(FitsError::AmbiguousKeyword { .. })
+/// ));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum FitsError {

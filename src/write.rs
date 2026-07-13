@@ -14,6 +14,19 @@ use crate::{BLOCK_LEN, CARD_LEN};
 pub const MAX_ZERO_FILL: u64 = 1 << 30;
 
 /// Image geometry used only when [`Header::to_bytes`] must synthesize missing structural cards.
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Header, StructuralHints};
+/// let hints = StructuralHints {
+///     bitpix: -32,
+///     naxis1: 1024,
+///     naxis2: 1024,
+/// };
+/// let file = Header::new().to_bytes(&hints).unwrap();
+/// assert!(file.len() > fits_header::BLOCK_LEN);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructuralHints {

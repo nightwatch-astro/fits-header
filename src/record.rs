@@ -4,6 +4,31 @@ use crate::error::FitsError;
 use crate::CARD_LEN;
 
 /// A value card's payload.
+///
+/// [`IntoValue`](crate::IntoValue) produces one of these from a Rust value; a card's
+/// [`RecordKind::Value`] holds one.
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Header, RecordKind, Value};
+/// let mut h = Header::new();
+/// h.set("OBJECT", "M31").unwrap(); // a quoted string
+/// h.set("EXPTIME", 120.0).unwrap(); // an unquoted literal
+///
+/// let values: Vec<&Value> = h
+///     .cards()
+///     .iter()
+///     .filter_map(|r| match &r.kind {
+///         RecordKind::Value { value, .. } => Some(value),
+///         _ => None,
+///     })
+///     .collect();
+/// assert_eq!(
+///     values,
+///     vec![&Value::Str("M31".to_string()), &Value::Literal("120.0".to_string())]
+/// );
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Value {
@@ -13,7 +38,19 @@ pub enum Value {
     Literal(String),
 }
 
-/// The semantic content of a record.
+/// The semantic content of a [`Record`].
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Header, RecordKind};
+/// let mut h = Header::new();
+/// h.set("OBJECT", "M31").unwrap();
+/// h.append("HISTORY", "dark subtracted").unwrap();
+///
+/// assert!(matches!(h.cards()[0].kind, RecordKind::Value { .. }));
+/// assert!(matches!(h.cards()[1].kind, RecordKind::Commentary { .. }));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RecordKind {
@@ -41,8 +78,18 @@ pub enum RecordKind {
     },
 }
 
-/// One header card. Carries its parsed content plus, when parsed and unmodified, the original
-/// bytes of its physical card(s) so it can be serialized verbatim.
+/// One header card. Carries its parsed [`RecordKind`] plus, when parsed and unmodified, the
+/// original bytes of its physical card(s) so it can be serialized verbatim.
+///
+/// # Examples
+///
+/// ```
+/// # use fits_header::{Record, Value};
+/// let r = Record::value("OBJECT", Value::Str("M31".to_string()), Some("target".to_string()));
+/// assert_eq!(r.keyword(), Some("OBJECT"));
+/// assert_eq!(r.str_content(), Some("M31"));
+/// assert_eq!(r.comment(), Some("target"));
+/// ```
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Record {
@@ -63,6 +110,15 @@ impl PartialEq for Record {
 
 impl Record {
     /// A new value card (not byte-backed; formatted on write).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::{Record, Value};
+    /// let r = Record::value("EXPTIME", Value::Literal("120.0".to_string()), None);
+    /// assert_eq!(r.keyword(), Some("EXPTIME"));
+    /// assert_eq!(r.value_text(), Some("120.0"));
+    /// ```
     pub fn value(keyword: impl Into<String>, value: Value, comment: Option<String>) -> Self {
         Record {
             kind: RecordKind::Value {
@@ -75,6 +131,15 @@ impl Record {
     }
 
     /// A new commentary card (not byte-backed; formatted on write).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Record;
+    /// let r = Record::commentary("HISTORY", "dark subtracted");
+    /// assert_eq!(r.keyword(), Some("HISTORY"));
+    /// assert_eq!(r.value_text(), Some("dark subtracted"));
+    /// ```
     pub fn commentary(keyword: impl Into<String>, text: impl Into<String>) -> Self {
         Record {
             kind: RecordKind::Commentary {
@@ -94,6 +159,15 @@ impl Record {
     }
 
     /// The addressable keyword, or `None` for opaque cards.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// assert_eq!(h.cards()[0].keyword(), Some("OBJECT"));
+    /// ```
     pub fn keyword(&self) -> Option<&str> {
         match &self.kind {
             RecordKind::Value { keyword, .. } | RecordKind::Commentary { keyword, .. } => {
@@ -105,6 +179,15 @@ impl Record {
 
     /// The value as text for typed reads: `Str` content (non-empty), a `Literal` token, or
     /// commentary text. `None` for empty strings and opaque cards.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// assert_eq!(h.cards()[0].value_text(), Some("120.0"));
+    /// ```
     pub fn value_text(&self) -> Option<&str> {
         match &self.kind {
             RecordKind::Value { value, .. } => match value {
@@ -116,7 +199,18 @@ impl Record {
         }
     }
 
-    /// The `Str` content of a value card (non-empty), for `get_str`.
+    /// The `Str` content of a value card (non-empty), for [`Header::get_str`](crate::Header::get_str).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("OBJECT", "M31").unwrap();
+    /// h.set("EXPTIME", 120.0).unwrap(); // a Literal, not Str content
+    /// assert_eq!(h.cards()[0].str_content(), Some("M31"));
+    /// assert_eq!(h.cards()[1].str_content(), None);
+    /// ```
     pub fn str_content(&self) -> Option<&str> {
         match &self.kind {
             RecordKind::Value {
@@ -128,6 +222,16 @@ impl Record {
     }
 
     /// The inline comment of a value card.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use fits_header::Header;
+    /// let mut h = Header::new();
+    /// h.set("EXPTIME", 120.0).unwrap();
+    /// h.set_comment("EXPTIME", "seconds").unwrap();
+    /// assert_eq!(h.cards()[0].comment(), Some("seconds"));
+    /// ```
     pub fn comment(&self) -> Option<&str> {
         match &self.kind {
             RecordKind::Value { comment, .. } => comment.as_deref(),
