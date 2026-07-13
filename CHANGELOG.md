@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.3](https://github.com/nightwatch-astro/fits-header/compare/v0.3.2...v0.3.3) (2026-07-13)
+
+
+### Features
+
+* add Header::write_to_file for creating new FITS files ([b857b42](https://github.com/nightwatch-astro/fits-header/commit/b857b426017e3674bfe981b478aa6b09550f7bc8))
+* add Header::write_to_file for creating new FITS files ([fd351e5](https://github.com/nightwatch-astro/fits-header/commit/fd351e50e22b49dedcb7eca58a564d2a949d9a4f))
+
 ## [0.3.2](https://github.com/nightwatch-astro/fits-header/compare/v0.3.1...v0.3.2) (2026-07-13)
 
 
