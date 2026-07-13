@@ -4,7 +4,10 @@ use crate::error::FitsError;
 use crate::key::Key;
 use crate::record::{is_commentary_keyword, validate_keyword, validate_keyword_raw, Record, Value};
 use crate::value::{FromCard, IntoValue};
-use crate::write::{self, StructuralHints};
+use crate::write;
+use crate::{BLOCK_LEN, CARD_LEN};
+use std::fs;
+use std::path::Path;
 
 /// An ordered FITS header unit: [`Record`]s in appearance order, with strict keyword
 /// access (via [`Key`]) and CRUD.
@@ -33,6 +36,129 @@ impl Header {
     /// Construct from records (used by the parser).
     pub(crate) fn from_records(records: Vec<Record>) -> Self {
         Header { records }
+    }
+
+    /// Parse one FITS header unit from raw bytes.
+    ///
+    /// Reads 80-byte cards in order, stops at `END`, and retains every card (including
+    /// commentary, `HIERARCH`, and unrecognized cards) so untouched cards serialize verbatim.
+    /// `CONTINUE` runs are reassembled into a single logical value. Bytes after `END` (the data
+    /// unit, later HDUs) are ignored — this crate is header-only and never inspects them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fits_header::Header;
+    ///
+    /// let mut bytes = Vec::new();
+    /// for card in ["OBJECT  = 'M31     '", "EXPTIME =                120.0", "END"] {
+    ///     let mut c = card.as_bytes().to_vec();
+    ///     c.resize(80, b' ');
+    ///     bytes.extend(c);
+    /// }
+    ///
+    /// let header = Header::parse(&bytes).unwrap();
+    /// assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
+    /// assert_eq!(header.get::<f64>("EXPTIME").unwrap(), Some(120.0));
+    /// ```
+    pub fn parse(bytes: &[u8]) -> Result<Header, FitsError> {
+        crate::parse::parse_header(bytes)
+    }
+
+    /// Read a FITS header from a file on disk.
+    ///
+    /// Reads the whole file and [`parse`](Self::parse)s it; parsing already stops at `END`, so
+    /// the data unit and any later HDUs are read but never interpreted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fits_header::Header;
+    ///
+    /// let mut bytes = Vec::new();
+    /// for card in ["OBJECT  = 'M31     '", "END"] {
+    ///     let mut c = card.as_bytes().to_vec();
+    ///     c.resize(80, b' ');
+    ///     bytes.extend(c);
+    /// }
+    /// while bytes.len() % fits_header::BLOCK_LEN != 0 {
+    ///     bytes.push(b' ');
+    /// }
+    /// bytes.extend_from_slice(&[0u8; 4]); // stand-in pixel data
+    ///
+    /// let path = std::env::temp_dir().join("fits-header-doctest-read_from_file.fits");
+    /// std::fs::write(&path, &bytes).unwrap();
+    ///
+    /// let header = Header::read_from_file(&path).unwrap();
+    /// assert_eq!(header.get_str("OBJECT").unwrap(), Some("M31"));
+    ///
+    /// std::fs::remove_file(&path).ok();
+    /// ```
+    pub fn read_from_file<P: AsRef<Path>>(path: P) -> Result<Header, FitsError> {
+        let bytes = fs::read(path)?;
+        Header::parse(&bytes)
+    }
+
+    /// Edit a FITS file's header in place, preserving its data unit (and any later HDUs)
+    /// byte-for-byte.
+    ///
+    /// Reads the whole file, locates the header region by scanning for the `END` card, parses
+    /// only that region, runs `edit` on it, then writes the re-serialized header back followed
+    /// by every byte that came after the original header — untouched, regardless of what `edit`
+    /// did. The write is atomic (temp file in the same directory, then renamed over `path`), so
+    /// a crash or interruption cannot leave a truncated file.
+    ///
+    /// Errors with [`FitsError::MissingEnd`] if the file has no `END` card.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fits_header::Header;
+    ///
+    /// let mut bytes = Vec::new();
+    /// for card in ["OBJECT  = 'M31     '", "END"] {
+    ///     let mut c = card.as_bytes().to_vec();
+    ///     c.resize(80, b' ');
+    ///     bytes.extend(c);
+    /// }
+    /// while bytes.len() % fits_header::BLOCK_LEN != 0 {
+    ///     bytes.push(b' ');
+    /// }
+    /// let data = [1u8, 2, 3, 4]; // stand-in pixel data
+    /// bytes.extend_from_slice(&data);
+    ///
+    /// let path = std::env::temp_dir().join("fits-header-doctest-update_file.fits");
+    /// std::fs::write(&path, &bytes).unwrap();
+    ///
+    /// Header::update_file(&path, |h| {
+    ///     h.set("OBJECT", "NGC 7000")?;
+    ///     Ok(())
+    /// })
+    /// .unwrap();
+    ///
+    /// let after = std::fs::read(&path).unwrap();
+    /// let header = Header::parse(&after).unwrap();
+    /// assert_eq!(header.get_str("OBJECT").unwrap(), Some("NGC 7000"));
+    /// assert_eq!(&after[after.len() - data.len()..], &data, "data unit preserved");
+    ///
+    /// std::fs::remove_file(&path).ok();
+    /// ```
+    pub fn update_file<P: AsRef<Path>>(
+        path: P,
+        edit: impl FnOnce(&mut Header) -> Result<(), FitsError>,
+    ) -> Result<(), FitsError> {
+        let path = path.as_ref();
+        let bytes = fs::read(path)?;
+        let header_len = header_region_len(&bytes)?;
+        let tail = &bytes[header_len..];
+
+        let mut header = Header::parse(&bytes[..header_len])?;
+        edit(&mut header)?;
+
+        let mut out = header.to_header_bytes();
+        out.extend_from_slice(tail);
+        write_atomic(path, &out)?;
+        Ok(())
     }
 
     /// The records in order (read-only escape hatch).
@@ -390,28 +516,44 @@ impl Header {
     pub fn to_header_bytes(&self) -> Vec<u8> {
         write::to_header_bytes(self)
     }
+}
 
-    /// Serialize a standalone FITS object (header + a minimal zero data block). When the header
-    /// has no `SIMPLE` card, a full `SIMPLE`/`BITPIX`/`NAXIS`/`NAXIS1`/`NAXIS2` set is
-    /// synthesized from `structural`; a header that already carries `SIMPLE` is written
-    /// unchanged (missing `BITPIX`/`NAXIS*` are not back-filled).
-    ///
-    /// Errors with [`FitsError::DataTooLarge`] when the declared data segment exceeds
-    /// [`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL) — for real-file edits, serialize with
-    /// [`to_header_bytes`](Self::to_header_bytes) and splice the original data.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use fits_header::{Header, StructuralHints};
-    /// let mut h = Header::new();
-    /// h.set("OBJECT", "M31").unwrap();
-    /// let file = h.to_bytes(&StructuralHints::default()).unwrap();
-    /// assert!(file.starts_with(b"SIMPLE"));
-    /// ```
-    pub fn to_bytes(&self, structural: &StructuralHints) -> Result<Vec<u8>, FitsError> {
-        write::to_bytes(self, structural)
+/// The byte length of the header region at the start of `bytes`: cards up to and including
+/// `END`, rounded up to a [`BLOCK_LEN`] multiple. Scans the same way [`Header::parse`] does, so
+/// this always agrees with what parsing would consume.
+fn header_region_len(bytes: &[u8]) -> Result<usize, FitsError> {
+    for (i, card) in bytes.chunks_exact(CARD_LEN).enumerate() {
+        let keyword = String::from_utf8_lossy(&card[..8]).trim().to_string();
+        if keyword == "END" {
+            let raw_len = (i + 1) * CARD_LEN;
+            return Ok(raw_len.div_ceil(BLOCK_LEN) * BLOCK_LEN);
+        }
     }
+    Err(FitsError::MissingEnd)
+}
+
+/// Write `bytes` to `path` atomically: write to a temp file in the same directory, then rename
+/// over `path`. A crash or interruption mid-write leaves the original file (or the abandoned
+/// temp file) intact, never a truncated `path`.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FitsError> {
+    let dir = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let dir = dir.unwrap_or_else(|| Path::new("."));
+    let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    let tmp_name = match file_name {
+        Some(name) => format!(".{name}.tmp-{}", std::process::id()),
+        None => format!(".fits-header.tmp-{}", std::process::id()),
+    };
+    let tmp_path = dir.join(tmp_name);
+
+    if let Err(e) = fs::write(&tmp_path, bytes) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    if let Err(e) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

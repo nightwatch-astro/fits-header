@@ -11,9 +11,12 @@ A pure-Rust FITS header reader/writer: parse all cards from a FITS file, CRUD si
 - **No app domain types.** `fits-header` exposes a generic `(keyword, value, comment)`
   header only. Application-specific mapping (e.g. `RawFileMetadata`) belongs in the
   consuming adapter, not here.
-- **Round-trip is the contract.** `parse(header.to_bytes(..))` must reproduce the
-  header for representative inputs. Cards are exactly 80 bytes; headers pad to a
+- **Round-trip is the contract.** `Header::parse(header.to_header_bytes())` must reproduce
+  the header for representative inputs. Cards are exactly 80 bytes; headers pad to a
   2880-byte multiple. Add a round-trip test with every serialization change.
+- **Header-scoped, not data-owning.** This crate never fabricates pixel data. Creating a
+  file means appending caller-owned bytes after `to_header_bytes()`; editing a file means
+  `Header::update_file`, which preserves the existing data unit byte-for-byte.
 - **No AI attribution in commits.** A pre-commit `git commit` guard enforces this.
 
 ## AGENTS Layering
@@ -39,11 +42,13 @@ Single library crate. The public surface lives in `src/lib.rs`:
   and a `time` datetime), plus named wrappers (`get_str`/`get_f64`/…) and a setter/builder
   so arbitrary keywords can be written (vendor escape hatch). Supports CRUD over single or
   multiple keywords.
-- `parse(&[u8]) -> Result<Header>` — reads 2880-byte blocks / 80-byte cards, stops
+- `Header::parse(&[u8]) -> Result<Header>` — reads 2880-byte blocks / 80-byte cards, stops
   at `END`, ignores `HIERARCH`/`COMMENT`/`HISTORY`, unescapes single-quoted strings.
-- `Header::to_bytes(&StructuralHints) -> Vec<u8>` — serializes cards back to a valid
-  FITS object (structural `SIMPLE`/`BITPIX`/`NAXIS*` cards, `END`, 2880 padding,
-  minimal data block).
+  `Header::read_from_file(path)` does the same from disk.
+- `Header::to_header_bytes() -> Vec<u8>` — serializes cards back to a header block (`END`,
+  2880 padding); the caller appends their own data to create a file.
+- `Header::update_file(path, edit)` — edits an existing file's header in place, atomically,
+  preserving the data unit (and any later HDUs) byte-for-byte.
 - Helpers: sexagesimal parse (`sexagesimal_ra_to_deg`, `sexagesimal_dec_to_deg`) and
   format (`deg_to_sexagesimal_ra`/`_dec`), lenient numeric parsing, and MJD <-> calendar
   date conversion (via `time`). An optional `serde` feature adds Serialize/Deserialize.

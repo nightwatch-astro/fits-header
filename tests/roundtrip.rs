@@ -1,6 +1,6 @@
 //! Round-trip properties: byte-exact for untouched cards, semantic equality after parse.
 
-use fits_header::{parse, Header};
+use fits_header::Header;
 use proptest::prelude::*;
 use std::collections::HashSet;
 
@@ -37,7 +37,7 @@ proptest! {
         let out = h.to_header_bytes();
         prop_assert_eq!(out.len() % 80, 0);
         prop_assert_eq!(out.len() % 2880, 0);
-        let re = parse(&out).unwrap();
+        let re = Header::parse(&out).unwrap();
         prop_assert_eq!(&h, &re);
     }
 
@@ -45,6 +45,6 @@ proptest! {
     fn byte_exact_reserialize(entries in prop::collection::vec((keyword(), value()), 0..15)) {
         let bytes = build(&entries).to_header_bytes();
         // An unmodified parsed header re-serializes to identical bytes.
-        prop_assert_eq!(parse(&bytes).unwrap().to_header_bytes(), bytes);
+        prop_assert_eq!(Header::parse(&bytes).unwrap().to_header_bytes(), bytes);
     }
 }

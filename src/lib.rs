@@ -11,14 +11,16 @@
 //! the `CONTINUE` convention.
 //!
 //! ```
-//! use fits_header::{Header, StructuralHints};
+//! use fits_header::Header;
 //!
 //! let mut h = Header::new();
 //! h.set("OBJECT", "M31").unwrap();
 //! h.set("EXPTIME", 120.0).unwrap();
 //! assert_eq!(h.get::<f64>("EXPTIME").unwrap(), Some(120.0));
 //!
-//! let bytes = h.to_bytes(&StructuralHints::default()).unwrap();
+//! // The header block only — creating a file means appending your own pixel data after
+//! // this; editing an existing file means Header::update_file, which preserves it.
+//! let bytes = h.to_header_bytes();
 //! assert_eq!(bytes.len() % fits_header::BLOCK_LEN, 0);
 //! ```
 //!
@@ -51,10 +53,10 @@ pub use crate::dates::{format_datetime, parse_datetime};
 pub use crate::error::FitsError;
 pub use crate::header::Header;
 pub use crate::key::Key;
+#[allow(deprecated)]
 pub use crate::parse::parse;
 pub use crate::record::{Record, RecordKind, Value};
 pub use crate::value::{parse_f64, parse_i64, Fixed, FromCard, IntoValue, Literal, Sci};
-pub use crate::write::{StructuralHints, MAX_ZERO_FILL};
 
 /// Compiles the README's code blocks as doctests so the documented API cannot drift.
 #[cfg(doctest)]

@@ -3,6 +3,10 @@
 A pure-Rust library for reading and writing the header of a
 [FITS](https://fits.gsfc.nasa.gov/fits_standard.html) file.
 
+- Header-scoped: this crate never owns, inspects, or fabricates pixel data. Creating a
+  file means appending your own data bytes to the header; editing a file means
+  [`Header::update_file`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.update_file),
+  which preserves the existing data unit byte-for-byte.
 - Pure Rust, no C or system libraries. Builds with the MSVC toolchain.
 - Every card is retained on parse; untouched cards (including long-string runs)
   re-serialize byte-for-byte. Only created or edited cards are re-rendered.
@@ -40,11 +44,11 @@ cargo add fits-header --features serde
 ## Usage
 
 ```rust
-use fits_header::{parse, FitsError, StructuralHints};
+use fits_header::{FitsError, Header};
 
 fn demo(bytes: &[u8]) -> Result<(), FitsError> {
     // Read every card from a FITS header unit.
-    let mut header = parse(bytes)?;
+    let mut header = Header::parse(bytes)?;
 
     // Typed reads through one generic accessor. Access is strict: a bare
     // name errors if the keyword occurs more than once.
@@ -60,31 +64,40 @@ fn demo(bytes: &[u8]) -> Result<(), FitsError> {
     // Batch mutations are atomic — all or nothing.
     header.set_many([("FILTER", "Ha"), ("TELESCOP", "EdgeHD 8")])?;
 
-    // Serialize. Untouched cards come back byte-for-byte identical.
+    // Serialize the header block. Untouched cards come back byte-for-byte identical.
+    // Creating a file: append your own pixel data after this — this crate never
+    // fabricates it.
     let block: Vec<u8> = header.to_header_bytes();
-    let whole_file = header.to_bytes(&StructuralHints::default())?;
     Ok(())
+}
+
+// Editing a file on disk: the data unit (and any later HDUs) survives untouched.
+fn edit_in_place(path: &std::path::Path) -> Result<(), FitsError> {
+    Header::update_file(path, |h| {
+        h.set("OBJECT", "M31")?;
+        Ok(())
+    })
 }
 ```
 
 See [`docs/guide.md`](docs/guide.md) for a longer, task-oriented walkthrough backed by
 [`examples/quickstart.rs`](examples/quickstart.rs).
 
-## Serialization outputs
+## Reading and writing real files
 
-- [`to_header_bytes()`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_header_bytes)
-  — the header block only (cards + `END`, padded to a 2880-byte multiple). The primary
-  path when editing a real file: splice it onto the file's data.
-- [`to_bytes(&hints)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_bytes)
-  — a standalone FITS object. When the header has no `SIMPLE` card, a full
-  `SIMPLE`/`BITPIX`/`NAXIS`/`NAXIS1`/`NAXIS2` set is synthesized from the
-  [`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html);
-  a header that already carries `SIMPLE` is written as-is (missing `BITPIX`/`NAXIS*` are
-  not back-filled). The declared data segment is zero-filled. Data larger than
-  [`MAX_ZERO_FILL`](https://docs.rs/fits-header/latest/fits_header/constant.MAX_ZERO_FILL.html)
-  (1 GiB) returns
-  [`FitsError::DataTooLarge`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.DataTooLarge)
-  instead of allocating.
+- [`Header::read_from_file(path)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.read_from_file)
+  — read a header from disk. Parsing stops at `END`, so the data unit is read but never
+  interpreted.
+- [`Header::to_header_bytes()`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_header_bytes)
+  — the header block only (cards + `END`, padded to a 2880-byte multiple). Creating a new
+  FITS object: write this, then append your own pixel bytes.
+- [`Header::update_file(path, edit)`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.update_file)
+  — edit an existing file in place. Reads the file, locates the header by scanning for
+  `END`, hands you the parsed header to mutate, then writes the new header back followed
+  by everything that came after the original one (data unit, later HDUs) untouched. The
+  write is atomic (temp file + rename). Errors with
+  [`FitsError::MissingEnd`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.MissingEnd)
+  if the file has no `END` card.
 
 ## Documentation
 
@@ -98,9 +111,8 @@ See [`docs/guide.md`](docs/guide.md) for a longer, task-oriented walkthrough bac
 
 - `serde` *(off by default)* — derive `Serialize`/`Deserialize` on
   [`Header`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html),
-  [`Record`](https://docs.rs/fits-header/latest/fits_header/struct.Record.html),
-  [`Value`](https://docs.rs/fits-header/latest/fits_header/enum.Value.html), and
-  [`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html).
+  [`Record`](https://docs.rs/fits-header/latest/fits_header/struct.Record.html), and
+  [`Value`](https://docs.rs/fits-header/latest/fits_header/enum.Value.html).
 
 ## Development
 

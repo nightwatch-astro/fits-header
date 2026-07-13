@@ -1,53 +1,8 @@
 //! Serialize a header back to bytes.
 
-use crate::error::FitsError;
 use crate::header::Header;
 use crate::record::{Record, RecordKind, Value};
 use crate::{BLOCK_LEN, CARD_LEN};
-
-/// Largest data segment [`Header::to_bytes`] will zero-fill, in bytes (1 GiB).
-///
-/// A header can declare an arbitrarily large image; zero-filling it would allocate that many
-/// bytes from header content alone. Above this cap `to_bytes` returns
-/// [`FitsError::DataTooLarge`] — serialize with [`Header::to_header_bytes`] and supply the
-/// data yourself.
-pub const MAX_ZERO_FILL: u64 = 1 << 30;
-
-/// Image geometry used only when [`Header::to_bytes`] must synthesize missing structural cards.
-///
-/// # Examples
-///
-/// ```
-/// # use fits_header::{Header, StructuralHints};
-/// let hints = StructuralHints {
-///     bitpix: -32,
-///     naxis1: 1024,
-///     naxis2: 1024,
-/// };
-/// let file = Header::new().to_bytes(&hints).unwrap();
-/// assert!(file.len() > fits_header::BLOCK_LEN);
-/// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct StructuralHints {
-    /// `BITPIX` — bits per pixel (sign encodes integer vs. float).
-    pub bitpix: i64,
-    /// `NAXIS1` — first axis length.
-    pub naxis1: u32,
-    /// `NAXIS2` — second axis length.
-    pub naxis2: u32,
-}
-
-impl Default for StructuralHints {
-    /// A 1×1 8-bit image.
-    fn default() -> Self {
-        StructuralHints {
-            bitpix: 8,
-            naxis1: 1,
-            naxis2: 1,
-        }
-    }
-}
 
 /// Serialize the header block only (cards + `END`, padded to a 2880 multiple).
 pub fn to_header_bytes(header: &Header) -> Vec<u8> {
@@ -55,52 +10,6 @@ pub fn to_header_bytes(header: &Header) -> Vec<u8> {
     emit_records(&mut out, header.cards(), has_longstrn(header));
     finish_header(&mut out);
     out
-}
-
-/// Serialize a standalone FITS object (header + minimal zero data block).
-///
-/// Errors with [`FitsError::DataTooLarge`] when the declared data segment exceeds
-/// [`MAX_ZERO_FILL`].
-pub fn to_bytes(header: &Header, hints: &StructuralHints) -> Result<Vec<u8>, FitsError> {
-    let synth = !header.cards().iter().any(|r| r.keyword() == Some("SIMPLE"));
-
-    let declared = data_len(header, hints, synth);
-    if declared > MAX_ZERO_FILL {
-        return Err(FitsError::DataTooLarge {
-            declared,
-            max: MAX_ZERO_FILL,
-        });
-    }
-
-    let mut out = Vec::new();
-    if synth {
-        push(
-            &mut out,
-            literal_card("SIMPLE", "T", Some("conforms to FITS standard")),
-        );
-        push(
-            &mut out,
-            literal_card("BITPIX", &hints.bitpix.to_string(), None),
-        );
-        push(&mut out, literal_card("NAXIS", "2", None));
-        push(
-            &mut out,
-            literal_card("NAXIS1", &hints.naxis1.to_string(), None),
-        );
-        push(
-            &mut out,
-            literal_card("NAXIS2", &hints.naxis2.to_string(), None),
-        );
-    }
-    emit_records(&mut out, header.cards(), has_longstrn(header));
-    finish_header(&mut out);
-
-    let mut data = vec![0u8; declared as usize];
-    if !data.is_empty() {
-        pad_to_block(&mut data, 0);
-    }
-    out.extend_from_slice(&data);
-    Ok(out)
 }
 
 fn finish_header(out: &mut Vec<u8>) {
@@ -247,37 +156,6 @@ fn has_longstrn(header: &Header) -> bool {
         .any(|r| r.keyword() == Some("LONGSTRN"))
 }
 
-/// The data size a header declares, in bytes (saturated on overflow, so a pathological
-/// geometry reads as "too large" instead of wrapping).
-fn data_len(header: &Header, hints: &StructuralHints, synth: bool) -> u64 {
-    let (bitpix, axes): (i64, Vec<u64>) = if synth {
-        (hints.bitpix, vec![hints.naxis1 as u64, hints.naxis2 as u64])
-    } else {
-        let bitpix = header.get::<i64>("BITPIX").ok().flatten().unwrap_or(8);
-        let naxis = header
-            .get::<i64>("NAXIS")
-            .ok()
-            .flatten()
-            .unwrap_or(0)
-            .max(0) as usize;
-        let axes = (1..=naxis)
-            .map(|k| {
-                header
-                    .get::<u64>(format!("NAXIS{k}"))
-                    .ok()
-                    .flatten()
-                    .unwrap_or(0)
-            })
-            .collect();
-        (bitpix, axes)
-    };
-    if axes.is_empty() || axes.contains(&0) {
-        return 0;
-    }
-    let elt = bitpix.unsigned_abs() / 8;
-    axes.iter().fold(elt, |acc, &n| acc.saturating_mul(n))
-}
-
 fn push(out: &mut Vec<u8>, card: [u8; CARD_LEN]) {
     out.extend_from_slice(&card);
 }
@@ -361,30 +239,6 @@ mod tests {
         assert!(text(&cards[1]).starts_with(&format!("COMMENT {}", "y".repeat(28))));
         // Empty commentary still emits its bare keyword card.
         assert_eq!(commentary_cards("HISTORY", "").len(), 1);
-    }
-
-    #[test]
-    fn data_len_geometry() {
-        let hints = StructuralHints::default();
-        // Synthesized: 1×1 8-bit → 1 byte.
-        assert_eq!(data_len(&Header::new(), &hints, true), 1);
-
-        let mut h = Header::new();
-        h.set("SIMPLE", crate::value::Literal("T")).unwrap();
-        // No NAXIS → no data.
-        assert_eq!(data_len(&h, &hints, false), 0);
-        // A zero axis → no data.
-        h.set("BITPIX", -32).unwrap();
-        h.set("NAXIS", 2).unwrap();
-        h.set("NAXIS1", 100).unwrap();
-        h.set("NAXIS2", 0).unwrap();
-        assert_eq!(data_len(&h, &hints, false), 0);
-        // Negative BITPIX (float) still sizes by magnitude: 100×50×4.
-        h.set("NAXIS2", 50).unwrap();
-        assert_eq!(data_len(&h, &hints, false), 100 * 50 * 4);
-        // A missing NAXISk reads as 0 → no data.
-        h.set("NAXIS", 3).unwrap();
-        assert_eq!(data_len(&h, &hints, false), 0);
     }
 
     #[test]

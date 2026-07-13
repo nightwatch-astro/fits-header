@@ -52,8 +52,13 @@ while bytes.len() % fits_header::BLOCK_LEN != 0 {
     bytes.push(b' ');
 }
 
-let mut header: Header = fits_header::parse(&bytes).unwrap();
+let mut header: Header = Header::parse(&bytes).unwrap();
 ```
+
+The same bytes read from disk instead of memory:
+[`Header::read_from_file`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.read_from_file)
+reads the file and parses it the same way; parsing already stops at `END`, so the data
+unit is read but never interpreted.
 
 Every card is retained, including ones this guide never touches — they re-serialize
 byte-for-byte at the end.
@@ -137,8 +142,7 @@ header.set_many([("FILTER", "OIII"), ("TELESCOP", "EdgeHD 11")])?;
 ## Serialize
 
 [`Header::to_header_bytes`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_header_bytes)
-writes the header block alone — cards plus `END`, padded to a `BLOCK_LEN` multiple —
-for splicing onto an existing file's data:
+writes the header block alone — cards plus `END`, padded to a `BLOCK_LEN` multiple:
 
 ```rust
 let block: Vec<u8> = header.to_header_bytes();
@@ -148,21 +152,28 @@ assert_eq!(block.len() % fits_header::BLOCK_LEN, 0);
 `BITPIX`, `NAXIS*`, and `DATE-OBS` were never touched above, so they come back
 byte-for-byte identical to the input.
 
-[`Header::to_bytes`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.to_bytes)
-writes a standalone FITS object instead. When the header has no `SIMPLE` card, a full
-`SIMPLE`/`BITPIX`/`NAXIS`/`NAXIS1`/`NAXIS2` set is synthesized from a
-[`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html);
-this fixture already carries `SIMPLE`, so it is written as-is and the hints go unused.
-The declared data segment is zero-filled (capped at
-[`MAX_ZERO_FILL`](https://docs.rs/fits-header/latest/fits_header/constant.MAX_ZERO_FILL.html),
-returning
-[`FitsError::DataTooLarge`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.DataTooLarge)
-above it):
+This crate is header-only: it never owns, inspects, or fabricates pixel data. That
+shapes the two ways real files get written:
 
-```rust
-let whole_file: Vec<u8> = header.to_bytes(&StructuralHints::default())?;
-assert!(whole_file.starts_with(b"SIMPLE"));
-```
+- **Creating a new file** — write `to_header_bytes()`, then append your own pixel data
+  after it. The caller owns the data; this crate never invents it.
+- **Editing an existing file** —
+  [`Header::update_file`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.update_file)
+  reads the file, locates the header by scanning for `END`, hands you the parsed header
+  to mutate, then writes the new header back followed by everything that came after the
+  original one (the data unit, and any later HDUs), untouched:
+
+  ```rust
+  Header::update_file(&path, |h| {
+      h.set("OBJECT", "NGC 7000")?;
+      Ok(())
+  })?;
+  ```
+
+  The write is atomic (temp file in the same directory, then rename), so a crash cannot
+  leave a truncated file. It errors with
+  [`FitsError::MissingEnd`](https://docs.rs/fits-header/latest/fits_header/enum.FitsError.html#variant.MissingEnd)
+  if the file has no `END` card.
 
 ## Next
 

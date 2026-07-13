@@ -56,14 +56,19 @@ pub enum FitsError {
         count: usize,
     },
 
-    /// [`Header::to_bytes`](crate::Header::to_bytes) declined to zero-fill a declared data
-    /// segment larger than [`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL). Serialize the header with
-    /// [`Header::to_header_bytes`](crate::Header::to_header_bytes) and supply the data yourself.
-    #[error("declared data size of {declared} bytes exceeds the to_bytes zero-fill cap ({max})")]
-    DataTooLarge {
-        /// The data size the header declares (saturated on overflow).
-        declared: u64,
-        /// The cap it exceeds ([`MAX_ZERO_FILL`](crate::MAX_ZERO_FILL)).
-        max: u64,
-    },
+    /// [`Header::update_file`](crate::Header::update_file) found no `END` card in the
+    /// existing file's header region, so the data unit's boundary cannot be located.
+    #[error("no END card found in header")]
+    MissingEnd,
+
+    /// A file read or write failed ([`Header::read_from_file`](crate::Header::read_from_file),
+    /// [`Header::update_file`](crate::Header::update_file)).
+    #[error("I/O error: {0}")]
+    Io(String),
+}
+
+impl From<std::io::Error> for FitsError {
+    fn from(e: std::io::Error) -> Self {
+        FitsError::Io(e.to_string())
+    }
 }
