@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.0](https://github.com/nightwatch-astro/fits-header/compare/v0.2.0...v0.3.0) (2026-07-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* removes Header::to_bytes, write::to_bytes, StructuralHints, MAX_ZERO_FILL, and FitsError::DataTooLarge. This crate never owns pixel data, so it has no business synthesizing or zero-filling it; create a file with to_header_bytes() and append your own data, or edit one in place with the new update_file.
+
+### Features
+
+* add header-scoped file I/O, drop data-fabricating writers ([a0ea5c5](https://github.com/nightwatch-astro/fits-header/commit/a0ea5c5d83817b7b05551f90bf6919172bb55285))
+
+
+### Bug Fixes
+
+* harden update_file atomic write and guard truncated headers ([7fb8025](https://github.com/nightwatch-astro/fits-header/commit/7fb8025bbceb998747bb96ede9847b13d1f7ac6b))
+
 ## [0.2.0](https://github.com/nightwatch-astro/fits-header/compare/v0.1.0...v0.2.0) (2026-07-11)
 
 
