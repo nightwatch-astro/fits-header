@@ -61,6 +61,11 @@ pub enum FitsError {
     #[error("no END card found in header")]
     MissingEnd,
 
+    /// [`Header::update_file`](crate::Header::update_file) found an `END` card, but the file
+    /// ends before that header's 2880-byte block is complete — a truncated FITS file.
+    #[error("header ends before its 2880-byte block is complete (truncated file)")]
+    TruncatedHeader,
+
     /// A file read or write failed ([`Header::read_from_file`](crate::Header::read_from_file),
     /// [`Header::update_file`](crate::Header::update_file)).
     #[error("I/O error: {0}")]

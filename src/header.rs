@@ -105,10 +105,16 @@ impl Header {
     /// Reads the whole file, locates the header region by scanning for the `END` card, parses
     /// only that region, runs `edit` on it, then writes the re-serialized header back followed
     /// by every byte that came after the original header — untouched, regardless of what `edit`
-    /// did. The write is atomic (temp file in the same directory, then renamed over `path`), so
-    /// a crash or interruption cannot leave a truncated file.
+    /// did.
     ///
-    /// Errors with [`FitsError::MissingEnd`] if the file has no `END` card.
+    /// The write is atomic and edits the real file in place: it writes a temp file in the
+    /// target's directory and renames it over the target. It follows symlinks (a symlinked
+    /// `path` stays a symlink; its target is edited) and, on Unix, preserves the target's file
+    /// mode. A crash or interruption cannot leave a truncated file.
+    ///
+    /// Errors with [`FitsError::MissingEnd`] if the file has no `END` card, or
+    /// [`FitsError::TruncatedHeader`] if it has one but ends before the header's 2880-byte
+    /// block is complete.
     ///
     /// # Examples
     ///
@@ -150,6 +156,10 @@ impl Header {
         let path = path.as_ref();
         let bytes = fs::read(path)?;
         let header_len = header_region_len(&bytes)?;
+        if header_len > bytes.len() {
+            // END found, but the file ends before the header block is padded out.
+            return Err(FitsError::TruncatedHeader);
+        }
         let tail = &bytes[header_len..];
 
         let mut header = Header::parse(&bytes[..header_len])?;
@@ -532,27 +542,56 @@ fn header_region_len(bytes: &[u8]) -> Result<usize, FitsError> {
     Err(FitsError::MissingEnd)
 }
 
-/// Write `bytes` to `path` atomically: write to a temp file in the same directory, then rename
-/// over `path`. A crash or interruption mid-write leaves the original file (or the abandoned
-/// temp file) intact, never a truncated `path`.
+/// Write `bytes` to `path` atomically, editing the real file in place.
+///
+/// Follows symlinks: if `path` is a symlink, its canonical target is resolved first and both
+/// the temp file and the rename land in the target's directory, so the link is preserved and
+/// the file it points at is the one edited. The temp file is renamed over the target (an atomic
+/// replace), so a crash mid-write leaves the original file intact, never a truncated one. On
+/// Unix the target's file mode is copied onto the temp file before the rename, so a 0600 file
+/// stays 0600 instead of dropping to the umask default. Any failure after the temp file is
+/// created removes it.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), FitsError> {
-    let dir = path.parent().filter(|p| !p.as_os_str().is_empty());
-    let dir = dir.unwrap_or_else(|| Path::new("."));
-    let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    // Resolve symlinks so we edit the real file in place; fall back to `path` if it does not
+    // yet exist (update_file always reads first, so it does).
+    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let dir = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let file_name = target.file_name().map(|n| n.to_string_lossy().into_owned());
     let tmp_name = match file_name {
         Some(name) => format!(".{name}.tmp-{}", std::process::id()),
         None => format!(".fits-header.tmp-{}", std::process::id()),
     };
     let tmp_path = dir.join(tmp_name);
 
-    if let Err(e) = fs::write(&tmp_path, bytes) {
+    let result = (|| {
+        fs::write(&tmp_path, bytes)?;
+        copy_mode(&target, &tmp_path)?;
+        fs::rename(&tmp_path, &target)?;
+        Ok(())
+    })();
+    if result.is_err() {
         let _ = fs::remove_file(&tmp_path);
-        return Err(e.into());
     }
-    if let Err(e) = fs::rename(&tmp_path, path) {
-        let _ = fs::remove_file(&tmp_path);
-        return Err(e.into());
+    result
+}
+
+/// Copy `src`'s file permissions onto `dst`. No-op off Unix, and silently ignores a missing
+/// `src` (a freshly created file has no prior mode to preserve).
+#[cfg(unix)]
+fn copy_mode(src: &Path, dst: &Path) -> Result<(), FitsError> {
+    match fs::metadata(src) {
+        Ok(meta) => fs::set_permissions(dst, meta.permissions())?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
     }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn copy_mode(_src: &Path, _dst: &Path) -> Result<(), FitsError> {
     Ok(())
 }
 
