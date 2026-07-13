@@ -83,8 +83,11 @@ See [`docs/guide.md`](docs/guide.md) for a longer, task-oriented walkthrough bac
 
 ## Features
 
-- `serde` *(off by default)* — derive `Serialize`/`Deserialize` on `Header`, `Record`,
-  `Value`, and `StructuralHints`.
+- `serde` *(off by default)* — derive `Serialize`/`Deserialize` on
+  [`Header`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html),
+  [`Record`](https://docs.rs/fits-header/latest/fits_header/struct.Record.html),
+  [`Value`](https://docs.rs/fits-header/latest/fits_header/enum.Value.html), and
+  [`StructuralHints`](https://docs.rs/fits-header/latest/fits_header/struct.StructuralHints.html).
 
 ## Development
 

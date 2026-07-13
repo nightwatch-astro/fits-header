@@ -33,7 +33,9 @@ const SAMPLE_CARDS: &[&str] = &[
 ];
 ```
 
-Pack it into a valid header unit — 80-byte cards, an `END` card, padded to a
+Pack it into a valid header unit —
+[`CARD_LEN`](https://docs.rs/fits-header/latest/fits_header/constant.CARD_LEN.html)-byte
+cards, an `END` card, padded to a
 [`BLOCK_LEN`](https://docs.rs/fits-header/latest/fits_header/constant.BLOCK_LEN.html)
 multiple — and
 [`parse`](https://docs.rs/fits-header/latest/fits_header/fn.parse.html) it into a
@@ -70,7 +72,11 @@ assert_eq!(object, Some("M31"));
 assert_eq!(exptime, Some(120.0));
 ```
 
-`COMMENT`, `HISTORY`, and blank-keyword cards repeat. Count occurrences with
+`COMMENT`, `HISTORY`, and blank-keyword cards are free-text
+[`RecordKind::Commentary`](https://docs.rs/fits-header/latest/fits_header/enum.RecordKind.html#variant.Commentary)
+records rather than addressable
+[`RecordKind::Value`](https://docs.rs/fits-header/latest/fits_header/enum.RecordKind.html#variant.Value)
+cards, so they repeat. Count occurrences with
 [`Header::count`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.count)
 and read them all with
 [`Header::get_all`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.get_all):
@@ -155,7 +161,15 @@ assert!(whole_file.starts_with(b"SIMPLE"));
   API reference, including number-formatting wrappers
   ([`Literal`](https://docs.rs/fits-header/latest/fits_header/struct.Literal.html),
   [`Fixed`](https://docs.rs/fits-header/latest/fits_header/struct.Fixed.html),
-  [`Sci`](https://docs.rs/fits-header/latest/fits_header/struct.Sci.html)) and the
-  date/time helpers
+  [`Sci`](https://docs.rs/fits-header/latest/fits_header/struct.Sci.html)), the
+  number parsers
+  ([`parse_f64`](https://docs.rs/fits-header/latest/fits_header/fn.parse_f64.html),
+  [`parse_i64`](https://docs.rs/fits-header/latest/fits_header/fn.parse_i64.html)), and
+  the date/time helpers
   ([`parse_datetime`](https://docs.rs/fits-header/latest/fits_header/fn.parse_datetime.html),
   [`format_datetime`](https://docs.rs/fits-header/latest/fits_header/fn.format_datetime.html)).
+- Extending the typed read/write layer: implement
+  [`FromCard`](https://docs.rs/fits-header/latest/fits_header/trait.FromCard.html) for a
+  new read type behind `Header::get`, or
+  [`IntoValue`](https://docs.rs/fits-header/latest/fits_header/trait.IntoValue.html) for
+  a new write type behind `Header::set`.
