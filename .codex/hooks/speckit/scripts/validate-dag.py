@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Validate tasks.md [graph] section is acyclic and report ready tasks.
 
 Usage: validate-dag.py <tasks.md> [--closed T001,T002,T003]

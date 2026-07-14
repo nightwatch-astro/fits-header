@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 //! Core value helpers: lenient numbers, dates, and formatting wrappers.
 
 use fits_header::{format_datetime, parse_datetime, parse_f64, parse_i64, Fixed, Header, Sci};
