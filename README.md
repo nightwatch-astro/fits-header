@@ -178,4 +178,8 @@ just doc
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](https://github.com/nightwatch-astro/fits-header/blob/main/LICENSE).
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
+This project is licensed under the Mozilla Public License 2.0 — see [LICENSE](LICENSE) for details.
+
+You can use this library in closed-source projects. If you modify any of the source files in this library, the modified files must be made available under the MPL-2.0 when distributed.

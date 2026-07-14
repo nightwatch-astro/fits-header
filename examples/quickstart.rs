@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 //! End-to-end walkthrough: parse a header, read and mutate it, then the two real file
 //! flows this crate supports — creating a new FITS object and editing an existing one
 //! in place.
