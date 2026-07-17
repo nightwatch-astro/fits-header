@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0](https://github.com/nightwatch-astro/fits-header/compare/v0.3.4...v0.4.0) (2026-07-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* relicense from Apache-2.0 to MPL-2.0 ([#18](https://github.com/nightwatch-astro/fits-header/issues/18))
+
+### Bug Fixes
+
+* store CLA signatures on unprotected branch, allowlist owner ([#21](https://github.com/nightwatch-astro/fits-header/issues/21)) ([8bf5126](https://github.com/nightwatch-astro/fits-header/commit/8bf51264c1331d76d45ec8bf91de010ba7e3aad8))
+* use GitHub App token for CLA bot instead of PAT ([#20](https://github.com/nightwatch-astro/fits-header/issues/20)) ([f4f1615](https://github.com/nightwatch-astro/fits-header/commit/f4f161560961066363987b7719e37e79820c3011))
+
+
+### Miscellaneous Chores
+
+* relicense from Apache-2.0 to MPL-2.0 ([#18](https://github.com/nightwatch-astro/fits-header/issues/18)) ([a87faf5](https://github.com/nightwatch-astro/fits-header/commit/a87faf52da2dbc364a80fa4879399d22a3a00966))
+
 ## [0.3.4](https://github.com/nightwatch-astro/fits-header/compare/v0.3.3...v0.3.4) (2026-07-13)
 
 
