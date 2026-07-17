@@ -34,4 +34,4 @@ jobs:
           path-to-document: "https://github.com/${{ github.repository }}/blob/main/CLA.md"
           branch: "cla-signatures"
           allowlist: "srobroek,bot*,dependabot*,renovate*,*[bot]*,sjorsr-release-bot*,nightwatch-astro-ci*"
-
+          lock-pullrequest-aftermerge: "false"
