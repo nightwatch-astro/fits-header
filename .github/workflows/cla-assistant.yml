@@ -32,6 +32,6 @@ jobs:
         with:
           path-to-signatures: "signatures/cla.json"
           path-to-document: "https://github.com/${{ github.repository }}/blob/main/CLA.md"
-          branch: "main"
-          allowlist: "bot*,dependabot*,renovate*,*[bot]*,sjorsr-release-bot*,nightwatch-astro-ci*"
+          branch: "cla-signatures"
+          allowlist: "srobroek,bot*,dependabot*,renovate*,*[bot]*,sjorsr-release-bot*,nightwatch-astro-ci*"
 
