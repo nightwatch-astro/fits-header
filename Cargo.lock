@@ -67,6 +67,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "skymath",
  "thiserror",
  "time",
 ]
@@ -325,6 +326,16 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "skymath"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a10b1f9678d1f8e2aaa7f9f3af28e0c5d0bbb9c544ae563e08b5dc1d9fbc2bfb"
+dependencies = [
+ "thiserror",
+ "time",
 ]
 
 [[package]]

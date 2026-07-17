@@ -4,9 +4,13 @@
 
 //! FITS date/time interpretation.
 
-use time::{Date, Month, PrimitiveDateTime, Time};
+use time::PrimitiveDateTime;
 
 /// Parse a FITS civil date/time (`YYYY-MM-DD[Thh:mm:ss[.fff]]`), timezone-naive.
+/// Delegates to [`skymath::parse_date_obs`] (itself extracted from this crate) so
+/// this crate carries one implementation of FITS `DATE-OBS` parsing instead of a
+/// hand-rolled duplicate; this also picks up tolerance for a trailing `Z` UTC
+/// designator.
 ///
 /// # Examples
 ///
@@ -16,56 +20,7 @@ use time::{Date, Month, PrimitiveDateTime, Time};
 /// assert!(fits_header::parse_datetime("2026-07-11").is_some()); // date-only → midnight
 /// ```
 pub fn parse_datetime(s: &str) -> Option<PrimitiveDateTime> {
-    let t = s.trim().trim_matches('\'').trim();
-    let (date_part, time_part) = match t.split_once('T') {
-        Some((d, tm)) => (d, Some(tm)),
-        None => (t, None),
-    };
-
-    let mut d = date_part.split('-');
-    let year: i32 = d.next()?.parse().ok()?;
-    let month: u8 = d.next()?.parse().ok()?;
-    let day: u8 = d.next()?.parse().ok()?;
-    if d.next().is_some() {
-        return None;
-    }
-    let date = Date::from_calendar_date(year, Month::try_from(month).ok()?, day).ok()?;
-
-    let time = match time_part {
-        None => Time::MIDNIGHT,
-        Some(tp) => {
-            let mut parts = tp.split(':');
-            let hour: u8 = parts.next()?.parse().ok()?;
-            let minute: u8 = parts.next()?.parse().ok()?;
-            let (sec, nanos) = match parts.next() {
-                None => (0u8, 0u32),
-                Some(sec_field) => {
-                    let (whole, frac) = match sec_field.split_once('.') {
-                        Some((w, f)) => (w, Some(f)),
-                        None => (sec_field, None),
-                    };
-                    let sec: u8 = whole.parse().ok()?;
-                    let nanos = match frac {
-                        None => 0,
-                        Some(f) => {
-                            let mut digits: String = f.chars().take(9).collect();
-                            while digits.len() < 9 {
-                                digits.push('0');
-                            }
-                            digits.parse::<u32>().ok()?
-                        }
-                    };
-                    (sec, nanos)
-                }
-            };
-            if parts.next().is_some() {
-                return None;
-            }
-            Time::from_hms_nano(hour, minute, sec, nanos).ok()?
-        }
-    };
-
-    Some(PrimitiveDateTime::new(date, time))
+    skymath::parse_date_obs(s).ok()
 }
 
 /// Format a date/time back to the FITS civil form (`YYYY-MM-DDThh:mm:ss[.fff]`), dropping a zero
@@ -100,6 +55,7 @@ pub fn format_datetime(dt: &PrimitiveDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use time::Time;
 
     #[test]
     fn date_only_is_midnight() {
@@ -129,6 +85,18 @@ mod tests {
     fn quoted_input_is_tolerated() {
         assert!(parse_datetime("'2026-07-11T01:02:03'").is_some());
         assert!(parse_datetime("  2026-07-11  ").is_some());
+    }
+
+    #[test]
+    fn trailing_z_designator_is_tolerated() {
+        assert_eq!(
+            parse_datetime("2026-07-11T22:15:03.25Z").unwrap(),
+            parse_datetime("2026-07-11T22:15:03.25").unwrap()
+        );
+        assert_eq!(
+            format_datetime(&parse_datetime("2026-07-11T22:15:03Z").unwrap()),
+            "2026-07-11T22:15:03"
+        );
     }
 
     #[test]
