@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/nightwatch-astro/fits-header/compare/v0.4.0...v0.4.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* parse DATE-OBS via skymath for trailing-Z UTC support ([#23](https://github.com/nightwatch-astro/fits-header/issues/23)) ([7383b90](https://github.com/nightwatch-astro/fits-header/commit/7383b90e0bea6c5287a07138f6253971bdb2f0fa))
+
 ## [0.4.0](https://github.com/nightwatch-astro/fits-header/compare/v0.3.4...v0.4.0) (2026-07-17)
 
 
