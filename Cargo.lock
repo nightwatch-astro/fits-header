@@ -330,9 +330,9 @@ dependencies = [
 
 [[package]]
 name = "skymath"
-version = "0.4.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a10b1f9678d1f8e2aaa7f9f3af28e0c5d0bbb9c544ae563e08b5dc1d9fbc2bfb"
+checksum = "c2a79e14882fa3b8890da09ab6c285953fc3ad0fa801bdb73bacf1492309091c"
 dependencies = [
  "thiserror",
  "time",

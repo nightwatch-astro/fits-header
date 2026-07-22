@@ -24,7 +24,7 @@ serde = ["dep:serde", "time/serde"]
 time = { version = "0.3", features = ["parsing", "formatting"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"], optional = true }
-skymath = "0.4"
+skymath = "0.6.0"
 
 [dev-dependencies]
 # Property-based round-trip testing of the parse/to_bytes contract.
