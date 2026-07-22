@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.2](https://github.com/nightwatch-astro/fits-header/compare/v0.4.1...v0.4.2) (2026-07-22)
+
+
+### Bug Fixes
+
+* use skymath 0.6.0 for FITS date parsing ([e241001](https://github.com/nightwatch-astro/fits-header/commit/e24100101aadc77c3dfab21a388241713a8ff642))
+
+
+### Miscellaneous Chores
+
+* release 0.4.2 ([9436286](https://github.com/nightwatch-astro/fits-header/commit/9436286609c3d8f915e67409066cc8e55e332431))
+
 ## [0.4.1](https://github.com/nightwatch-astro/fits-header/compare/v0.4.0...v0.4.1) (2026-07-17)
 
 
