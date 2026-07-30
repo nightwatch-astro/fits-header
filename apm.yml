@@ -14,7 +14,6 @@ dependencies:
     - srobroek/agentic-packages/packages/language-rust
     - srobroek/agentic-packages/packages/lsp-rust
     - srobroek/agentic-packages/packages/speckit
-    - srobroek/agentic-packages/packages/steering-speckit
     - srobroek/agentic-packages/packages/hooks-attribution-guard
     - srobroek/agentic-packages/packages/steering-git-workflow
     - srobroek/agentic-packages/packages/release-please
