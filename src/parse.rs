@@ -34,8 +34,7 @@ pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
     let mut i = 0;
     while i < cards.len() {
         let card = cards[i];
-        let card_str = String::from_utf8_lossy(&card).into_owned();
-        let keyword = card_str[..8].trim().to_string();
+        let keyword = String::from_utf8_lossy(&card[..8]).trim().to_string();
 
         if keyword == "END" {
             break;
@@ -44,7 +43,8 @@ pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
         let is_value = card.get(8) == Some(&b'=') && card.get(9) == Some(&b' ');
 
         if is_value {
-            let field = card_str[10..].trim_start();
+            let field_str = String::from_utf8_lossy(&card[10..]);
+            let field = field_str.trim_start();
             if field.starts_with('\'') {
                 // String value — may continue across CONTINUE cards.
                 let (mut content, mut comment, mut cont) = parse_string_field(field);
@@ -57,8 +57,8 @@ pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
                     }
                     // Confirmed continuation: drop the '&' marker before appending the next piece.
                     content.pop();
-                    let next_str = String::from_utf8_lossy(&next).into_owned();
-                    let nf = next_str[10..].trim_start();
+                    let next_field = String::from_utf8_lossy(&next[10..]);
+                    let nf = next_field.trim_start();
                     let (piece, c2, cont2) = parse_string_field(nf);
                     content.push_str(&piece);
                     if c2.is_some() {
@@ -89,13 +89,13 @@ pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
                 ));
             }
         } else if keyword == "COMMENT" || keyword == "HISTORY" {
-            let text = card_str[8..].trim_end().to_string();
+            let text = String::from_utf8_lossy(&card[8..]).trim_end().to_string();
             records.push(crate::record::Record::from_raw(
                 RecordKind::Commentary { keyword, text },
                 vec![card],
             ));
         } else if keyword.is_empty() {
-            let rest = &card_str[8..];
+            let rest = String::from_utf8_lossy(&card[8..]);
             if rest.trim().is_empty() {
                 records.push(crate::record::Record::from_raw(
                     RecordKind::Opaque {
@@ -116,7 +116,7 @@ pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
             // HIERARCH / non-standard / stray CONTINUE.
             records.push(crate::record::Record::from_raw(
                 RecordKind::Opaque {
-                    text: card_str.trim_end().to_string(),
+                    text: String::from_utf8_lossy(&card).trim_end().to_string(),
                 },
                 vec![card],
             ));
@@ -293,6 +293,76 @@ mod tests {
         cards[15] = 0xff; // inside the value field
         let h = parse_header(&cards).unwrap();
         assert_eq!(h.cards().len(), 1, "card is retained, lossily decoded");
+    }
+
+    /// Build a header block from raw card bytes, space-padded to 80 and closed with `END`.
+    fn raw_block(cards: &[&[u8]]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for c in cards {
+            let mut b = c.to_vec();
+            b.resize(CARD_LEN, b' ');
+            out.extend(b);
+        }
+        let mut end = b"END".to_vec();
+        end.resize(CARD_LEN, b' ');
+        out.extend(end);
+        out
+    }
+
+    // A card is 80 raw bytes at fixed offsets, but lossy decoding expands each invalid byte to a
+    // 3-byte U+FFFD, so string offsets drift out of step with card offsets. Each case below put a
+    // decoded character across a slice boundary and panicked in 0.4.2.
+
+    #[test]
+    fn keyword_offset_inside_replacement_char() {
+        // 0xff at byte 6 decodes to U+FFFD spanning string offsets 6..9, so offset 8 is interior.
+        let h = parse_header(&raw_block(&[b"OBJECT\xffT= 'X'"])).unwrap();
+        assert_eq!(h.cards().len(), 1);
+    }
+
+    #[test]
+    fn keyword_offset_inside_multibyte_utf8() {
+        // Valid UTF-8, not a decoding artefact: 'é' occupies bytes 7..9.
+        let h = parse_header(&raw_block(&[b"OBJECT \xc3\xa9= 'X'"])).unwrap();
+        assert_eq!(h.cards().len(), 1);
+    }
+
+    #[test]
+    fn value_field_offset_inside_replacement_char() {
+        // Two invalid bytes leave offset 8 on a boundary but put offset 10 inside a U+FFFD.
+        let h = parse_header(&raw_block(&[b"OBJEC\xff\xff = 'X'"])).unwrap();
+        assert_eq!(h.cards().len(), 1);
+    }
+
+    #[test]
+    fn continue_field_offset_inside_replacement_char() {
+        // The "CONTINUE" check constrains bytes 0..8 only; byte 8 still shifts offset 10.
+        let h = parse_header(&raw_block(&[b"LONG    = 'aaa&'", b"CONTINUE\xff 'bbb'"])).unwrap();
+        assert_eq!(
+            h.cards().len(),
+            1,
+            "the CONTINUE card folds into the value record"
+        );
+    }
+
+    #[test]
+    fn commentary_and_blank_keyword_text_decodes_lossily() {
+        let h = parse_header(&raw_block(&[b"COMMENT \xff note", b"        \xff note"])).unwrap();
+        assert!(matches!(
+            h.cards()[0].kind,
+            RecordKind::Commentary { ref text, .. } if text.contains('\u{fffd}')
+        ));
+        assert!(matches!(
+            h.cards()[1].kind,
+            RecordKind::Commentary { ref text, .. } if text.contains('\u{fffd}')
+        ));
+    }
+
+    #[test]
+    fn input_shorter_than_one_card_yields_no_cards() {
+        // `chunks_exact` drops a partial card, so truncated input never reaches a field offset.
+        assert_eq!(Header::parse(b"OBJECT\xff").unwrap().cards().len(), 0);
+        assert_eq!(Header::parse(b"").unwrap().cards().len(), 0);
     }
 
     #[test]
