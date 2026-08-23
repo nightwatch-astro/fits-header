@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/nightwatch-astro/fits-header/compare/v0.4.2...v0.4.3) (2026-08-23)
+
+
+### Bug Fixes
+
+* slice card fields on raw bytes, not a lossy-decoded string ([#29](https://github.com/nightwatch-astro/fits-header/issues/29)) ([92d724c](https://github.com/nightwatch-astro/fits-header/commit/92d724cd27e66500a1fbe2e925ed92630be60e74))
+
 ## [0.4.2](https://github.com/nightwatch-astro/fits-header/compare/v0.4.1...v0.4.2) (2026-07-22)
 
 
