@@ -139,15 +139,15 @@ fn verify_regime(name: &str, naxis1: usize, naxis2: usize, filler: usize) {
         1 + filler,
         "the realistic HISTORY card plus every filler card"
     );
-    let hierarch_preserved = h.cards().iter().any(|r| {
-        matches!(&r.kind, RecordKind::Opaque { text } if text.starts_with("HIERARCH ESO DET DIT"))
-    });
-    assert!(hierarch_preserved, "HIERARCH card preserved as opaque");
     assert_eq!(
-        h.count("HIERARCH"),
-        0,
-        "opaque HIERARCH card is not addressable by keyword"
+        h.get::<f64>(fits_header::Key::hierarch("ESO DET DIT"))
+            .unwrap(),
+        Some(10.0)
     );
+    assert!(h.cards().iter().any(|r| {
+        matches!(&r.kind, RecordKind::Hierarch { keyword, .. } if keyword == "ESO DET DIT")
+    }));
+    assert_eq!(h.count("ESO DET DIT"), 0);
 
     // 2. No-op update_file reproduces the file byte-for-byte.
     Header::update_file(&f.0, |_h| Ok(())).unwrap();

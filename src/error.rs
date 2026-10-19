@@ -51,6 +51,12 @@ pub enum FitsError {
         /// The offending keyword.
         keyword: String,
     },
+    /// A HIERARCH value and its keyword/comment do not fit on one 80-byte card.
+    #[error("HIERARCH keyword '{keyword}' and value exceed one 80-byte card")]
+    HierarchCardTooLong {
+        /// The HIERARCH keyword addressed.
+        keyword: String,
+    },
 
     /// An `(name, occurrence)` key targeted an occurrence that does not exist.
     #[error("keyword '{keyword}' has no occurrence {occurrence} (found {count})")]

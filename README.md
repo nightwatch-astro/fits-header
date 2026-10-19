@@ -33,12 +33,13 @@ A pure-Rust library for reading and writing the header of a
 - The API is an ordered
   [`Header`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html) of
   [`Record`](https://docs.rs/fits-header/latest/fits_header/struct.Record.html)s — value
-  cards, repeatable commentary cards, and opaque pass-through cards; it contains no
-  application types.
-- `HIERARCH` and other non-standard or malformed cards parse as
-  [`RecordKind::Opaque`](https://docs.rs/fits-header/latest/fits_header/enum.RecordKind.html#variant.Opaque)
-  records: preserved byte-for-byte on re-serialization, but not addressable by keyword
-  (`get`/`set`/`remove` never see them).
+  cards, repeatable commentary cards, addressable HIERARCH value cards, and opaque pass-through
+  cards; it contains no application types. Use `Key::hierarch("ESO DET DIT")` to address a
+  HIERARCH card; untouched cards stay byte-exact, while edited values must fit on one 80-byte card.
+
+This release changes public `Key` and `RecordKind` variants and makes valid `HIERARCH` value
+cards addressable instead of opaque. Update exhaustive enum matches and code that relied on the
+previous parsed `Opaque` representation.
 
 ## Install
 

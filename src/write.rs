@@ -50,6 +50,14 @@ fn render_record(record: &Record) -> (Vec<[u8; CARD_LEN]>, bool) {
             value: Value::Literal(l),
             comment,
         } => (vec![literal_card(keyword, l, comment.as_deref())], false),
+        RecordKind::Hierarch {
+            keyword,
+            value,
+            comment,
+        } => {
+            let card = hierarch_card(keyword, value, comment.as_deref());
+            (vec![card], false)
+        }
         RecordKind::Commentary { keyword, text } => (commentary_cards(keyword, text), false),
         RecordKind::Opaque { text } => (vec![pad80(text)], false),
     }
@@ -66,6 +74,22 @@ fn literal_card(keyword: &str, token: &str, comment: Option<&str>) -> [u8; CARD_
         s.push_str(&format!(" / {c}"));
     }
     pad80(&s)
+}
+fn hierarch_card(keyword: &str, value: &Value, comment: Option<&str>) -> [u8; CARD_LEN] {
+    let mut card = format!("HIERARCH {keyword} = ");
+    match value {
+        Value::Str(s) => {
+            card.push('\'');
+            card.push_str(&s.replace('\'', "''"));
+            card.push('\'');
+        }
+        Value::Literal(token) => card.push_str(token),
+    }
+    if let Some(comment) = comment {
+        card.push_str(" / ");
+        card.push_str(comment);
+    }
+    pad80(&card)
 }
 
 fn string_cards(
@@ -154,10 +178,12 @@ fn longstrn_card() -> [u8; CARD_LEN] {
 }
 
 fn has_longstrn(header: &Header) -> bool {
-    header
-        .cards()
-        .iter()
-        .any(|r| r.keyword() == Some("LONGSTRN"))
+    header.cards().iter().any(|record| {
+        matches!(
+            &record.kind,
+            RecordKind::Value { keyword, .. } if keyword == "LONGSTRN"
+        )
+    })
 }
 
 fn push(out: &mut Vec<u8>, card: [u8; CARD_LEN]) {
@@ -265,5 +291,21 @@ mod tests {
         let out = to_header_bytes(&h);
         let s = String::from_utf8_lossy(&out);
         assert_eq!(s.matches("LONGSTRN").count(), 1);
+    }
+
+    #[test]
+    fn hierarch_longstrn_does_not_suppress_standard_declaration() {
+        let mut bytes = Vec::new();
+        for card in ["HIERARCH LONGSTRN = 'custom'", "END"] {
+            let mut raw = card.as_bytes().to_vec();
+            raw.resize(CARD_LEN, b' ');
+            bytes.extend(raw);
+        }
+        let mut header = Header::parse(&bytes).unwrap();
+        header.set("A", "x".repeat(100).as_str()).unwrap();
+        let out = to_header_bytes(&header);
+        let text = String::from_utf8_lossy(&out);
+        assert_eq!(text.matches("LONGSTRN").count(), 2);
+        assert!(text.contains("LONGSTRN= 'OGIP 1.0'"));
     }
 }

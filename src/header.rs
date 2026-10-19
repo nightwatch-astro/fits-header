@@ -6,7 +6,10 @@
 
 use crate::error::{FitsError, Result};
 use crate::key::Key;
-use crate::record::{is_commentary_keyword, validate_keyword, validate_keyword_raw, Record, Value};
+use crate::record::{
+    is_commentary_keyword, validate_hierarch_keyword, validate_keyword, validate_keyword_raw,
+    Record, RecordKind, Value,
+};
 use crate::value::{FromCard, IntoValue};
 use crate::write;
 use crate::{BLOCK_LEN, CARD_LEN};
@@ -262,8 +265,7 @@ impl Header {
         self.records.iter()
     }
 
-    /// How many records carry this keyword.
-    ///
+    /// How many standard/commentary records carry this keyword. Use `Key::hierarch` for HIERARCH.
     /// # Examples
     ///
     /// ```
@@ -277,30 +279,42 @@ impl Header {
     pub fn count(&self, name: &str) -> usize {
         self.records
             .iter()
-            .filter(|r| r.keyword() == Some(name))
+            .filter(|r| r.keyword() == Some(name) && !matches!(r.kind, RecordKind::Hierarch { .. }))
             .count()
     }
 
-    /// Resolve a key to a record index. A bare name is strict.
+    /// Resolve a key to a record index. Standard and HIERARCH keywords use separate namespaces.
     fn resolve(&self, key: &Key) -> Result<Option<usize>> {
         let name = key.name();
-        let indices: Vec<usize> = self
+        let is_hierarch = key.is_hierarch();
+        let matches = |record: &Record| {
+            record.keyword() == Some(name)
+                && matches!(record.kind, crate::record::RecordKind::Hierarch { .. }) == is_hierarch
+        };
+
+        if let Some(occurrence) = key.occurrence() {
+            return Ok(self
+                .records
+                .iter()
+                .enumerate()
+                .filter(|(_, record)| matches(record))
+                .nth(occurrence)
+                .map(|(i, _)| i));
+        }
+
+        let mut records = self
             .records
             .iter()
             .enumerate()
-            .filter(|(_, r)| r.keyword() == Some(name))
-            .map(|(i, _)| i)
-            .collect();
-        match key.occurrence() {
-            Some(n) => Ok(indices.get(n).copied()),
-            None => match indices.len() {
-                0 => Ok(None),
-                1 => Ok(Some(indices[0])),
-                count => Err(FitsError::AmbiguousKeyword {
-                    keyword: name.to_string(),
-                    count,
-                }),
-            },
+            .filter(|(_, record)| matches(record));
+        let first = records.next().map(|(i, _)| i);
+        match (first, records.next()) {
+            (None, _) => Ok(None),
+            (Some(i), None) => Ok(Some(i)),
+            (Some(_), Some(_)) => Err(FitsError::AmbiguousKeyword {
+                keyword: name.to_string(),
+                count: self.records.iter().filter(|record| matches(record)).count(),
+            }),
         }
     }
 
@@ -358,7 +372,7 @@ impl Header {
     pub fn get_all<T: FromCard>(&self, name: &str) -> Vec<T> {
         self.records
             .iter()
-            .filter(|r| r.keyword() == Some(name))
+            .filter(|r| r.keyword() == Some(name) && !matches!(r.kind, RecordKind::Hierarch { .. }))
             .filter_map(T::from_card)
             .collect()
     }
@@ -373,27 +387,77 @@ impl Header {
             Record::value(name, value, None)
         }
     }
+    fn validate_hierarch_value(name: &str, value: &Value, comment: Option<&str>) -> Result<()> {
+        let value_len = match value {
+            Value::Str(s) => s.chars().try_fold(2usize, |len, c| {
+                len.checked_add(if c == '\'' { 2 } else { c.len_utf8() })
+            }),
+            Value::Literal(token) => Some(token.len()),
+        };
+        let comment_len = comment.map_or(Some(0), |c| 3usize.checked_add(c.len()));
+        let fits = value_len
+            .and_then(|len| {
+                "HIERARCH "
+                    .len()
+                    .checked_add(name.len())?
+                    .checked_add(3)?
+                    .checked_add(len)?
+                    .checked_add(comment_len?)
+            })
+            .is_some_and(|len| len <= CARD_LEN);
+        if fits {
+            Ok(())
+        } else {
+            Err(FitsError::HierarchCardTooLong {
+                keyword: name.to_string(),
+            })
+        }
+    }
 
     fn set_inner(&mut self, key: Key, value: Value, raw: bool) -> Result<()> {
-        let name = key.name().to_string();
-        if raw {
-            validate_keyword_raw(&name)?;
+        let name = key.name();
+        let is_hierarch = key.is_hierarch();
+        if is_hierarch {
+            validate_hierarch_keyword(name)?;
+        } else if raw {
+            validate_keyword_raw(name)?;
         } else {
-            validate_keyword(&name)?;
+            validate_keyword(name)?;
         }
-        match self.resolve(&key)? {
+
+        let existing = self.resolve(&key)?;
+        if is_hierarch {
+            let comment = existing.and_then(|i| self.records[i].comment());
+            Self::validate_hierarch_value(name, &value, comment)?;
+        }
+
+        match existing {
             Some(i) => {
                 self.records[i].replace_value(value);
                 Ok(())
             }
             None => match key.occurrence() {
                 Some(n) => Err(FitsError::OccurrenceOutOfRange {
-                    keyword: name.clone(),
+                    keyword: name.to_string(),
                     occurrence: n,
-                    count: self.count(&name),
+                    count: if is_hierarch {
+                        self.records
+                            .iter()
+                            .filter(|r| {
+                                r.keyword() == Some(name)
+                                    && matches!(r.kind, RecordKind::Hierarch { .. })
+                            })
+                            .count()
+                    } else {
+                        self.count(name)
+                    },
                 }),
                 None => {
-                    self.records.push(Self::make_record(&name, value));
+                    self.records.push(if is_hierarch {
+                        Record::hierarch(name, value, None)
+                    } else {
+                        Self::make_record(name, value)
+                    });
                     Ok(())
                 }
             },
@@ -402,8 +466,8 @@ impl Header {
 
     /// Updates the addressed record (or appends when the unique name is absent) in the
     /// in-memory header; nothing is written to disk — see [`Header`] to persist. The
-    /// keyword must be FITS-standard (`≤8`, `A-Z 0-9 - _`); use [`set_raw`](Self::set_raw)
-    /// for vendor keys.
+    /// HIERARCH keywords are selected with [`Key::hierarch`], which accepts the text after
+    /// `HIERARCH`, including multi-word names. Their values must fit in one 80-byte card.
     ///
     /// # Examples
     ///
@@ -454,9 +518,9 @@ impl Header {
         Ok(())
     }
 
-    /// Set or replace the addressed value card's inline comment. No-op if the keyword is absent
-    /// or not a value card.
-    ///
+    /// Set or replace the addressed value card's inline comment. For HIERARCH cards the comment
+    /// must still fit on the one physical 80-byte card. No-op if the keyword is absent or not a
+    /// value card.
     /// # Examples
     ///
     /// ```
@@ -467,8 +531,15 @@ impl Header {
     /// assert_eq!(h.cards()[0].comment(), Some("seconds"));
     /// ```
     pub fn set_comment(&mut self, key: impl Into<Key>, comment: impl Into<String>) -> Result<()> {
-        if let Some(i) = self.resolve(&key.into())? {
-            self.records[i].set_comment(Some(comment.into()));
+        let key = key.into();
+        if let Some(i) = self.resolve(&key)? {
+            let comment = comment.into();
+            if let crate::record::RecordKind::Hierarch { keyword, value, .. } =
+                &self.records[i].kind
+            {
+                Self::validate_hierarch_value(keyword, value, Some(&comment))?;
+            }
+            self.records[i].set_comment(Some(comment));
         }
         Ok(())
     }
@@ -518,20 +589,45 @@ impl Header {
             .into_iter()
             .map(|(k, v)| (k.into(), v.into_value()))
             .collect();
-        // Validate keywords and resolvability against the current state before mutating.
-        for (k, _) in &items {
-            validate_keyword(k.name())?;
-            if let Some(n) = k.occurrence() {
-                if self.resolve(k)?.is_none() {
-                    return Err(FitsError::OccurrenceOutOfRange {
-                        keyword: k.name().to_string(),
-                        occurrence: n,
-                        count: self.count(k.name()),
-                    });
+        for (k, v) in &items {
+            if k.is_hierarch() {
+                let name = k.name();
+                validate_hierarch_keyword(name)?;
+                let existing = self.resolve(k)?;
+                let comment = existing.and_then(|i| self.records[i].comment());
+                Self::validate_hierarch_value(name, v, comment)?;
+                if let Some(n) = k.occurrence() {
+                    if existing.is_none() {
+                        return Err(FitsError::OccurrenceOutOfRange {
+                            keyword: name.to_string(),
+                            occurrence: n,
+                            count: self
+                                .records
+                                .iter()
+                                .filter(|r| {
+                                    r.keyword() == Some(name)
+                                        && matches!(
+                                            r.kind,
+                                            crate::record::RecordKind::Hierarch { .. }
+                                        )
+                                })
+                                .count(),
+                        });
+                    }
                 }
             } else {
-                // Surfaces AmbiguousKeyword before any change.
-                self.resolve(k)?;
+                validate_keyword(k.name())?;
+                if let Some(n) = k.occurrence() {
+                    if self.resolve(k)?.is_none() {
+                        return Err(FitsError::OccurrenceOutOfRange {
+                            keyword: k.name().to_string(),
+                            occurrence: n,
+                            count: self.count(k.name()),
+                        });
+                    }
+                } else {
+                    self.resolve(k)?;
+                }
             }
         }
         for (k, v) in items {

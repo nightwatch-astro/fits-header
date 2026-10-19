@@ -44,7 +44,8 @@ Single library crate. The public surface lives in `src/lib.rs`:
   so arbitrary keywords can be written (vendor escape hatch). Supports CRUD over single or
   multiple keywords.
 - `Header::parse(&[u8]) -> Result<Header>` — reads 2880-byte blocks / 80-byte cards, stops
-  at `END`, ignores `HIERARCH`/`COMMENT`/`HISTORY`, unescapes single-quoted strings.
+  at `END`; retains HIERARCH, COMMENT, HISTORY, and unknown cards; decodes addressable
+  HIERARCH values while preserving their original bytes until edited.
   `Header::read_from_file(path)` does the same from disk.
 - `Header::to_header_bytes() -> Vec<u8>` — serializes cards back to a header block (`END`,
   2880 padding); the caller appends their own data to create a file.
