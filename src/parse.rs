@@ -112,8 +112,57 @@ pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
                     vec![card],
                 ));
             }
+        } else if card.starts_with(b"HIERARCH ") {
+            let next_is_continue = cards
+                .get(i + 1)
+                .is_some_and(|next| String::from_utf8_lossy(&next[..8]).trim() == "CONTINUE");
+            if let Some((keyword, (mut value, mut comment), continues)) =
+                parse_hierarch_field(&card, next_is_continue)
+            {
+                let mut raw = vec![card];
+                if continues {
+                    while i + 1 < cards.len() {
+                        let next = cards[i + 1];
+                        if String::from_utf8_lossy(&next[..8]).trim() != "CONTINUE" {
+                            break;
+                        }
+                        let (piece, next_comment, next_continues) =
+                            parse_string_field(String::from_utf8_lossy(&next[10..]).trim_start());
+                        if let Value::Str(content) = &mut value {
+                            content.pop();
+                            content.push_str(&piece);
+                        }
+                        if next_comment.is_some() {
+                            comment = next_comment;
+                        }
+                        raw.push(next);
+                        i += 1;
+                        if !next_continues {
+                            break;
+                        }
+                    }
+                }
+                if let Value::Str(content) = &mut value {
+                    content.truncate(content.trim_end().len());
+                }
+                records.push(crate::record::Record::from_raw(
+                    RecordKind::Hierarch {
+                        keyword,
+                        value,
+                        comment,
+                    },
+                    raw,
+                ));
+            } else {
+                records.push(crate::record::Record::from_raw(
+                    RecordKind::Opaque {
+                        text: String::from_utf8_lossy(&card).trim_end().to_string(),
+                    },
+                    vec![card],
+                ));
+            }
         } else {
-            // HIERARCH / non-standard / stray CONTINUE.
+            // Non-standard / stray CONTINUE.
             records.push(crate::record::Record::from_raw(
                 RecordKind::Opaque {
                     text: String::from_utf8_lossy(&card).trim_end().to_string(),
@@ -126,6 +175,32 @@ pub(crate) fn parse_header(bytes: &[u8]) -> Result<Header> {
     }
 
     Ok(Header::from_records(records))
+}
+fn parse_hierarch_field(
+    card: &[u8; CARD_LEN],
+    next_is_continue: bool,
+) -> Option<(String, (Value, Option<String>), bool)> {
+    let text = std::str::from_utf8(card).ok()?;
+    let rest = text.strip_prefix("HIERARCH").map(str::trim_start)?;
+    let (keyword, field) = rest.split_once('=')?;
+    let keyword = keyword.split_whitespace().collect::<Vec<_>>().join(" ");
+    crate::record::validate_hierarch_keyword(&keyword).ok()?;
+    let field = field.trim_start();
+    if field.starts_with('\'') {
+        let (content, comment, continued) = parse_string_field(field);
+        Some((
+            keyword,
+            (Value::Str(content), comment),
+            continued && next_is_continue,
+        ))
+    } else {
+        let (token, comment) = split_comment(field);
+        Some((
+            keyword,
+            (Value::Literal(token.trim().to_string()), comment),
+            false,
+        ))
+    }
 }
 
 /// Parse a quoted string field: return the unescaped content (trailing `&` continuation marker
@@ -176,7 +251,7 @@ fn split_comment(s: &str) -> (&str, Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::record::RecordKind;
+    use crate::record::{RecordKind, Value};
 
     fn block(cards: &[&str]) -> Vec<u8> {
         let mut out = Vec::new();
@@ -233,15 +308,54 @@ mod tests {
     }
 
     #[test]
-    fn hierarch_and_unrecognized_are_opaque() {
-        let h = parse_header(&block(&["HIERARCH ESO DET DIT = 10.0", "JUNK CARD"])).unwrap();
+    fn hierarch_values_are_addressable_and_unknown_cards_stay_opaque() {
+        let bytes = block(&["HIERARCH ESO DET DIT = 10.0", "JUNK CARD"]);
+        let h = parse_header(&bytes).unwrap();
         assert_eq!(h.cards().len(), 2);
-        for r in h.cards() {
-            assert!(matches!(r.kind, RecordKind::Opaque { .. }));
-            assert_eq!(r.keyword(), None);
-        }
+        assert!(matches!(
+            h.cards()[0].kind,
+            RecordKind::Hierarch { ref keyword, ref value, .. }
+                if keyword == "ESO DET DIT" && value == &Value::Literal("10.0".to_string())
+        ));
+        assert_eq!(h.cards()[0].keyword(), Some("ESO DET DIT"));
+        assert!(matches!(h.cards()[1].kind, RecordKind::Opaque { .. }));
+        assert_eq!(h.cards()[1].keyword(), None);
+        let serialized = h.to_header_bytes();
+        assert_eq!(&serialized[..160], &bytes[..160]);
     }
 
+    #[test]
+    fn hierarch_trailing_ampersand_is_continuation_only_before_continue() {
+        let no_continue = block(&["HIERARCH ESO OBS NAME = 'abc&'"]);
+        let header = parse_header(&no_continue).unwrap();
+        assert_eq!(
+            header
+                .get_str(crate::Key::hierarch("ESO OBS NAME"))
+                .unwrap(),
+            Some("abc&")
+        );
+
+        let with_continue = block(&["HIERARCH ESO OBS NAME = 'abc&'", "CONTINUE  'def'"]);
+        let header = parse_header(&with_continue).unwrap();
+        assert_eq!(
+            header
+                .get_str(crate::Key::hierarch("ESO OBS NAME"))
+                .unwrap(),
+            Some("abcdef")
+        );
+    }
+
+    #[test]
+    fn hierarch_name_collapses_extra_internal_spaces() {
+        let header = parse_header(&block(&["HIERARCH ESO  DET NDIT = 5"])).unwrap();
+        assert_eq!(
+            header
+                .get::<String>(crate::Key::hierarch("ESO DET NDIT"))
+                .unwrap()
+                .as_deref(),
+            Some("5")
+        );
+    }
     #[test]
     fn fully_blank_card_is_opaque_blank_with_text_is_commentary() {
         let h = parse_header(&block(&["", "        some annotation"])).unwrap();

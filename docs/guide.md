@@ -177,12 +177,31 @@ instead of guessing. Select one occurrence with a
 [`Key`](https://docs.rs/fits-header/latest/fits_header/enum.Key.html) pair, e.g.
 `header.get::<f64>(("GAIN", 1))` for the second occurrence.
 
-`HIERARCH` cards and other non-standard or malformed cards parse as opaque
-[`RecordKind::Opaque`](https://docs.rs/fits-header/latest/fits_header/enum.RecordKind.html#variant.Opaque)
-records. They pass through unmodified on re-serialization, but they carry no addressable
-keyword — `get`, `set`, and `remove` never see them, and
-[`Header::count`](https://docs.rs/fits-header/latest/fits_header/struct.Header.html#method.count)
-reports them as absent.
+`HIERARCH` value cards expose their long keyword via [`Key::hierarch`]. The key accepts the
+keyword text following `HIERARCH`, including multi-word names such as `ESO DET DIT`; the
+explicit key keeps them separate from ordinary FITS keywords.
+
+```rust
+use fits_header::{Header, Key};
+
+# fn sample_header() -> Header {
+#     let mut bytes = Vec::new();
+#     for card in ["HIERARCH INSTRUMENT = 'Camera A'", "END"] {
+#         let mut raw = card.as_bytes().to_vec();
+#         raw.resize(fits_header::CARD_LEN, b' ');
+#         bytes.extend(raw);
+#     }
+#     Header::parse(&bytes).unwrap()
+# }
+# let mut header = sample_header();
+let instrument: Option<&str> = header.get_str(Key::hierarch("INSTRUMENT"))?;
+header.set(Key::hierarch("TELESCOPE"), "Corrected telescope")?;
+header.remove(Key::hierarch("INSTRUMENT"))?;
+# Ok::<(), fits_header::FitsError>(())
+```
+
+Untouched HIERARCH and other opaque cards still pass through byte-for-byte. Every edited
+HIERARCH value must fit on a single 80-byte card or the mutation returns an error.
 
 ## Mutate
 

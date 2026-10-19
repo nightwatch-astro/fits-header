@@ -7,11 +7,8 @@
 use crate::error::FitsError;
 use crate::CARD_LEN;
 
-/// A value card's payload.
-///
-/// [`IntoValue`](crate::IntoValue) produces one of these from a Rust value; a card's
-/// [`RecordKind::Value`] holds one.
-///
+/// [`IntoValue`](crate::IntoValue) produces one of these; value cards hold a payload in a
+/// [`RecordKind::Value`] or [`RecordKind::Hierarch`] variant.
 /// # Examples
 ///
 /// ```
@@ -24,7 +21,7 @@ use crate::CARD_LEN;
 ///     .cards()
 ///     .iter()
 ///     .filter_map(|r| match &r.kind {
-///         RecordKind::Value { value, .. } => Some(value),
+///         RecordKind::Value { value, .. } | RecordKind::Hierarch { value, .. } => Some(value),
 ///         _ => None,
 ///     })
 ///     .collect();
@@ -47,20 +44,31 @@ pub enum Value {
 /// # Examples
 ///
 /// ```
-/// # use fits_header::{Header, RecordKind};
+/// # use fits_header::{Header, Key, RecordKind};
 /// let mut h = Header::new();
 /// h.set("OBJECT", "M31").unwrap();
+/// h.set(Key::hierarch("TELESCOPE"), "EdgeHD 8").unwrap();
 /// h.append("HISTORY", "dark subtracted").unwrap();
 ///
 /// assert!(matches!(h.cards()[0].kind, RecordKind::Value { .. }));
-/// assert!(matches!(h.cards()[1].kind, RecordKind::Commentary { .. }));
+/// assert!(matches!(h.cards()[1].kind, RecordKind::Hierarch { .. }));
+/// assert!(matches!(h.cards()[2].kind, RecordKind::Commentary { .. }));
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RecordKind {
-    /// An addressable value card: `KEYWORD = value / comment`.
+    /// An addressable standard value card: `KEYWORD = value / comment`.
     Value {
         /// The trimmed 8-character keyword.
+        keyword: String,
+        /// The value payload.
+        value: Value,
+        /// The inline comment, without the leading ` / `.
+        comment: Option<String>,
+    },
+    /// An addressable `HIERARCH` value card, keyed by its complete long name.
+    Hierarch {
+        /// The hierarchical keyword following `HIERARCH`.
         keyword: String,
         /// The value payload.
         value: Value,
@@ -74,7 +82,7 @@ pub enum RecordKind {
         /// The free-text payload (columns 9–80).
         text: String,
     },
-    /// A preserved card that is not addressable as a keyword (`HIERARCH`, unrecognized, blank).
+    /// A preserved card that is not addressable as a keyword (unrecognized, blank).
     /// `text` holds the card content for display/serialization.
     Opaque {
         /// The card content (trailing spaces trimmed).
@@ -114,15 +122,6 @@ impl PartialEq for Record {
 
 impl Record {
     /// A new value card (not byte-backed; formatted on write).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use fits_header::{Record, Value};
-    /// let r = Record::value("EXPTIME", Value::Literal("120.0".to_string()), None);
-    /// assert_eq!(r.keyword(), Some("EXPTIME"));
-    /// assert_eq!(r.value_text(), Some("120.0"));
-    /// ```
     pub fn value(keyword: impl Into<String>, value: Value, comment: Option<String>) -> Self {
         Record {
             kind: RecordKind::Value {
@@ -133,7 +132,6 @@ impl Record {
             raw: None,
         }
     }
-
     /// A new commentary card (not byte-backed; formatted on write).
     ///
     /// # Examples
@@ -153,6 +151,19 @@ impl Record {
             raw: None,
         }
     }
+    /// A new hierarchical value card (not byte-backed; formatted on write).
+    ///
+    /// `keyword` is the complete long name after the `HIERARCH` prefix.
+    pub fn hierarch(keyword: impl Into<String>, value: Value, comment: Option<String>) -> Self {
+        Record {
+            kind: RecordKind::Hierarch {
+                keyword: keyword.into(),
+                value,
+                comment,
+            },
+            raw: None,
+        }
+    }
 
     /// A record backed by original card bytes (parsed, unmodified).
     pub(crate) fn from_raw(kind: RecordKind, raw: Vec<[u8; CARD_LEN]>) -> Self {
@@ -162,8 +173,8 @@ impl Record {
         }
     }
 
-    /// The addressable keyword, or `None` for opaque cards.
-    ///
+    /// The addressable keyword, or `None` for opaque cards. HIERARCH records return the long name
+    /// after the `HIERARCH` prefix.
     /// # Examples
     ///
     /// ```
@@ -174,9 +185,9 @@ impl Record {
     /// ```
     pub fn keyword(&self) -> Option<&str> {
         match &self.kind {
-            RecordKind::Value { keyword, .. } | RecordKind::Commentary { keyword, .. } => {
-                Some(keyword)
-            }
+            RecordKind::Value { keyword, .. }
+            | RecordKind::Commentary { keyword, .. }
+            | RecordKind::Hierarch { keyword, .. } => Some(keyword),
             RecordKind::Opaque { .. } => None,
         }
     }
@@ -194,7 +205,7 @@ impl Record {
     /// ```
     pub fn value_text(&self) -> Option<&str> {
         match &self.kind {
-            RecordKind::Value { value, .. } => match value {
+            RecordKind::Value { value, .. } | RecordKind::Hierarch { value, .. } => match value {
                 Value::Str(s) => (!s.is_empty()).then_some(s.as_str()),
                 Value::Literal(l) => Some(l),
             },
@@ -220,6 +231,10 @@ impl Record {
             RecordKind::Value {
                 value: Value::Str(s),
                 ..
+            }
+            | RecordKind::Hierarch {
+                value: Value::Str(s),
+                ..
             } => (!s.is_empty()).then_some(s.as_str()),
             _ => None,
         }
@@ -238,7 +253,9 @@ impl Record {
     /// ```
     pub fn comment(&self) -> Option<&str> {
         match &self.kind {
-            RecordKind::Value { comment, .. } => comment.as_deref(),
+            RecordKind::Value { comment, .. } | RecordKind::Hierarch { comment, .. } => {
+                comment.as_deref()
+            }
             _ => None,
         }
     }
@@ -252,7 +269,7 @@ impl Record {
     /// so it is reformatted on write.
     pub(crate) fn replace_value(&mut self, new: Value) {
         match &mut self.kind {
-            RecordKind::Value { value, .. } => *value = new,
+            RecordKind::Value { value, .. } | RecordKind::Hierarch { value, .. } => *value = new,
             RecordKind::Commentary { text, .. } => {
                 *text = match new {
                     Value::Str(s) | Value::Literal(s) => s,
@@ -265,9 +282,12 @@ impl Record {
 
     /// Set or clear a value card's comment, marking it dirty.
     pub(crate) fn set_comment(&mut self, c: Option<String>) {
-        if let RecordKind::Value { comment, .. } = &mut self.kind {
-            *comment = c;
-            self.raw = None;
+        match &mut self.kind {
+            RecordKind::Value { comment, .. } | RecordKind::Hierarch { comment, .. } => {
+                *comment = c;
+                self.raw = None;
+            }
+            _ => {}
         }
     }
 }
@@ -295,6 +315,26 @@ pub fn validate_keyword(name: &str) -> Result<(), FitsError> {
     Ok(())
 }
 
+/// Validate a HIERARCH keyword using the ESO convention: uppercase keyword words separated by
+/// single spaces, with each word containing only `A-Z`, `0-9`, `-`, or `_`.
+pub(crate) fn validate_hierarch_keyword(name: &str) -> Result<(), FitsError> {
+    if name.is_empty()
+        || !name.split(' ').all(|word| {
+            !word.is_empty()
+                && word.bytes().all(|byte| {
+                    byte.is_ascii_uppercase()
+                        || byte.is_ascii_digit()
+                        || byte == b'-'
+                        || byte == b'_'
+                })
+        })
+    {
+        return Err(FitsError::InvalidKeyword {
+            keyword: name.to_string(),
+        });
+    }
+    Ok(())
+}
 /// Validate a vendor keyword escape hatch: ≤8 characters, printable ASCII (any charset).
 pub fn validate_keyword_raw(name: &str) -> Result<(), FitsError> {
     if name.len() > 8 {
@@ -333,6 +373,29 @@ mod tests {
         }
     }
 
+    #[test]
+    fn hierarch_validation_matches_eso_keyword_words() {
+        for valid in ["TELESCOPE", "ESO DET NDIT", "LONG-NAME A_1"] {
+            assert!(validate_hierarch_keyword(valid).is_ok(), "{valid}");
+        }
+        for invalid in [
+            "",
+            " telescope",
+            "telescope",
+            "A=B",
+            "ESO / DET",
+            "ESO 'DET'",
+            "ESO  DET",
+        ] {
+            assert!(
+                matches!(
+                    validate_hierarch_keyword(invalid),
+                    Err(FitsError::InvalidKeyword { .. })
+                ),
+                "{invalid:?}"
+            );
+        }
+    }
     #[test]
     fn raw_validation_allows_printable_ascii_only() {
         for ok in ["obj", "K.1", "a b", "~"] {
