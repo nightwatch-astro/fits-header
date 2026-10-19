@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/nightwatch-astro/fits-header/compare/v0.4.3...v0.5.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* public Key and RecordKind gain variants, and parsed valid HIERARCH cards now use RecordKind::Hierarch instead of RecordKind::Opaque.
+
+### Features
+
+* make HIERARCH value keywords addressable ([#31](https://github.com/nightwatch-astro/fits-header/issues/31)) ([192850f](https://github.com/nightwatch-astro/fits-header/commit/192850f9b9c1b49a2c01503fe7420a0f65d3af1a))
+
 ## [0.4.3](https://github.com/nightwatch-astro/fits-header/compare/v0.4.2...v0.4.3) (2026-08-23)
 
 
